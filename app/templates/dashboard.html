@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>本地运营统计看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #07111f;
+            --panel: rgba(15, 28, 48, 0.92);
+            --line: rgba(151, 178, 214, 0.24);
+            --text: #eef5ff;
+            --muted: #98aac3;
+            --blue: #54a7ff;
+            --green: #48d597;
+            --yellow: #ffd166;
+            --purple: #b898ff;
+            --red: #ff6b86;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 18% 16%, rgba(84, 167, 255, 0.24), transparent 30%),
+                radial-gradient(circle at 84% 8%, rgba(72, 213, 151, 0.18), transparent 28%),
+                linear-gradient(140deg, #081324, #101929 52%, #07111f);
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
+        .shell { width: min(1480px, calc(100vw - 40px)); margin: 0 auto; padding: 28px 0 40px; }
+        .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
+        h1 { margin: 0; font-size: 30px; letter-spacing: 0; }
+        .subtitle { margin-top: 8px; color: var(--muted); font-size: 14px; }
+        .toolbar { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+        button {
+            border: 1px solid rgba(84, 167, 255, 0.55);
+            color: var(--text);
+            background: rgba(84, 167, 255, 0.16);
+            padding: 9px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 650;
+        }
+        button:hover { background: rgba(84, 167, 255, 0.28); }
+
+        .cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+        .card, .panel {
+            border: 1px solid var(--line);
+            background: var(--panel);
+            border-radius: 8px;
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+        }
+        .card { padding: 16px 16px 14px; min-height: 112px; }
+        .card .label { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+        .card .value { font-size: 30px; line-height: 1.1; font-weight: 760; }
+        .card .hint { margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+        .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; }
+        .panel { padding: 16px; min-height: 340px; }
+        .panel h2 { margin: 0 0 14px; font-size: 17px; letter-spacing: 0; }
+        .chart-box { position: relative; width: 100%; height: 260px; max-height: 260px; overflow: hidden; }
+        .chart-box canvas { display: block; width: 100% !important; height: 260px !important; max-height: 260px !important; }
+        .wide { grid-column: 1 / -1; }
+        .note { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+        th { color: #c9d8eb; font-weight: 700; background: rgba(255, 255, 255, 0.03); }
+        td { color: #e8f1ff; }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            height: 24px;
+            padding: 0 9px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            background: rgba(84, 167, 255, 0.16);
+            color: #9fd0ff;
+        }
+        .pill.green { background: rgba(72, 213, 151, 0.14); color: #8bf0bf; }
+        .pill.yellow { background: rgba(255, 209, 102, 0.16); color: #ffe09a; }
+        .clickable-row { cursor: pointer; }
+        .clickable-row:hover td { background: rgba(84, 167, 255, 0.10); }
+        .item-link { border: 0; padding: 0; color: #9fd0ff; background: transparent; font: inherit; font-weight: 700; text-align: left; }
+        .item-link:hover { color: #d7ecff; background: transparent; }
+        .error {
+            display: none;
+            margin-bottom: 16px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 107, 134, 0.45);
+            background: rgba(255, 107, 134, 0.12);
+            color: #ffd4dd;
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 28px;
+            background: rgba(3, 8, 16, 0.72);
+            z-index: 20;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            width: min(960px, calc(100vw - 40px));
+            max-height: min(760px, calc(100vh - 56px));
+            border: 1px solid rgba(151, 178, 214, 0.34);
+            border-radius: 8px;
+            background: #0d1a2d;
+            box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
+            overflow: hidden;
+        }
+        .modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 16px 18px; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); }
+        .modal-title { font-size: 18px; font-weight: 760; }
+        .modal-subtitle { margin-top: 6px; color: var(--muted); font-size: 12px; }
+        .modal-close { min-width: 38px; padding: 7px 10px; }
+        .modal-body { max-height: calc(min(760px, calc(100vh - 56px)) - 78px); overflow: auto; padding: 14px 18px 18px; }
+
+        @media (max-width: 1100px) {
+            .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 680px) {
+            .shell { width: min(100vw - 24px, 1480px); padding-top: 18px; }
+            .topbar { align-items: flex-start; flex-direction: column; }
+            .cards { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<main class="shell">
+    <div class="topbar">
+        <div>
+            <h1>本地运营统计看板</h1>
+            <div class="subtitle">独立本机服务，只读连接数据库，自动刷新统计结果</div>
+        </div>
+        <div class="toolbar">
+            <span id="generatedAt">等待加载</span>
+            <button id="refreshBtn" type="button">刷新</button>
+        </div>
+    </div>
+
+    <div id="error" class="error"></div>
+
+    <section class="cards">
+        <div class="card"><div class="label">10分钟在线账号</div><div class="value" id="onlineNow">-</div><div class="hint">按最后心跳小于等于10分钟统计</div></div>
+        <div class="card"><div class="label">今日日活账号</div><div class="value" id="activeToday">-</div><div class="hint">按进入游戏日志落在今天统计</div></div>
+        <div class="card"><div class="label">今日注册账号</div><div class="value" id="registrationsToday">-</div><div class="hint">按账号创建时间统计</div></div>
+        <div class="card"><div class="label">今日充值金额</div><div class="value" id="rechargeToday">-</div><div class="hint" id="rechargeHint">-</div></div>
+        <div class="card"><div class="label">新皮肤拥有账号</div><div class="value" id="skinOwners">-</div><div class="hint" id="skinOwnerHint">-</div></div>
+        <div class="card"><div class="label">新皮肤已装备账号</div><div class="value" id="skinEquipped">-</div><div class="hint">当前正在使用荣耀绿茵</div></div>
+    </section>
+
+    <section class="grid">
+        <div class="panel"><h2>最近24小时最后活跃分布，10分钟桶</h2><div class="chart-box"><canvas id="onlineChart"></canvas></div><div class="note" id="onlineNote"></div></div>
+        <div class="panel"><h2>每日充值金额</h2><div class="chart-box"><canvas id="rechargeChart"></canvas></div><div class="note">金额按支付表最小货币单位除以100展示，图中默认展示 CNY。</div></div>
+        <div class="panel"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近7日日活来自进入游戏日志，更早数据来自本地每日快照。</div></div>
+        <div class="panel"><h2>荣耀绿茵领取与购买，按小时</h2><div class="chart-box"><canvas id="skinChart"></canvas></div><div class="note" id="skinNote"></div></div>
+        <div class="panel">
+            <h2>近14日道具购买 Top 12</h2>
+            <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
+            <table><thead><tr><th>道具</th><th>购买次数</th><th>数量</th><th>消耗元宝</th></tr></thead><tbody id="itemPurchaseRows"></tbody></table>
+        </div>
+        <div class="panel">
+            <h2>近14日道具使用 Top 12</h2>
+            <div class="chart-box"><canvas id="itemUseChart"></canvas></div>
+            <table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table>
+        </div>
+        <div class="panel wide">
+            <h2>最近获得荣耀绿茵的医院</h2>
+            <table>
+                <thead><tr><th>时间</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>来源</th><th>已装备</th></tr></thead>
+                <tbody id="skinRows"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div class="modal-backdrop" id="itemModal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="itemModalTitle">
+        <div class="modal-head">
+            <div><div class="modal-title" id="itemModalTitle">道具明细</div><div class="modal-subtitle" id="itemModalSubtitle">近14日</div></div>
+            <button class="modal-close" id="itemModalClose" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+            <table>
+                <thead><tr><th>最后时间</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>次数</th><th>数量</th><th id="itemModalYuanbaoHead">元宝</th></tr></thead>
+                <tbody id="itemModalRows"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const charts = {};
+    const renderState = {};
+
+    document.getElementById('refreshBtn').addEventListener('click', loadStats);
+    document.getElementById('itemModalClose').addEventListener('click', closeItemModal);
+    document.getElementById('itemModal').addEventListener('click', event => {
+        if (event.target.id === 'itemModal') closeItemModal();
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') closeItemModal();
+    });
+    window.addEventListener('load', () => {
+        loadStats();
+        setInterval(loadStats, 60000);
+    });
+
+    async function loadStats() {
+        const error = document.getElementById('error');
+        error.style.display = 'none';
+        try {
+            const response = await fetch('/api/stats', {cache: 'no-store'});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            render(await response.json());
+        } catch (e) {
+            error.textContent = `读取统计失败：${e.message || e}`;
+            error.style.display = 'block';
+        }
+    }
+
+    function render(data) {
+        const overallSignature = stableStringify({
+            summary: data.summary || {}, note: data.note || '', zoneId: data.zoneId || '',
+            onlineBuckets: data.onlineBuckets || [], dailyRecharge: data.dailyRecharge || [],
+            dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [],
+            dailySkin: data.dailySkin || [], recentSkinOwners: data.recentSkinOwners || [],
+            itemPurchases: data.itemPurchases || [], itemUsages: data.itemUsages || []
+        });
+        if (renderState.overallSignature === overallSignature) return;
+        renderState.overallSignature = overallSignature;
+
+        const s = data.summary || {};
+        setText('generatedAt', `更新时间 ${formatDateTime(data.generatedAt)}，时区 ${data.zoneId || '-'}`);
+        setText('onlineNow', formatNumber(s.online_now_accounts));
+        setText('activeToday', formatNumber(s.active_today_accounts));
+        setText('registrationsToday', formatNumber(s.registrations_today));
+        setText('rechargeToday', `¥${formatMoney(s.recharge_cny_today)}`);
+        setText('rechargeHint', `${formatNumber(s.recharge_orders_today)} 笔，${formatNumber(s.recharge_yuanbao_today)} 元宝`);
+        setText('skinOwners', formatNumber(s.skin_owner_accounts));
+        setText('skinOwnerHint', `免费 ${formatNumber(s.skin_free_accounts)}，购买日志 ${formatNumber(s.skin_purchase_log_accounts)}，扣款确认 ${formatNumber(s.skin_paid_confirmed_accounts)}`);
+        setText('skinEquipped', formatNumber(s.skin_equipped_accounts));
+        setText('onlineNote', data.note || '');
+        setText('skinNote', `上线以来按小时统计。当前拥有医院 ${formatNumber(s.skin_owner_hospitals)}，账号 ${formatNumber(s.skin_owner_accounts)}。`);
+
+        renderOnlineChart(data.onlineBuckets || []);
+        renderRechargeChart(data.dailyRecharge || []);
+        renderActivityChart(data.dailyActive || [], data.dailyRegistrations || []);
+        renderSkinChart(data.dailySkin || []);
+        renderItemPurchaseChart(data.itemPurchases || []);
+        renderItemUseChart(data.itemUsages || []);
+        renderSkinRows(data.recentSkinOwners || []);
+        renderItemActivityRows('itemPurchaseRows', data.itemPurchases || [], true);
+        renderItemActivityRows('itemUseRows', data.itemUsages || [], false);
+    }
+
+    function renderOnlineChart(rows) {
+        upsertChart('onlineChart', 'line', 'onlineChart', {
+            labels: rows.map(row => row.label),
+            datasets: [{label: '账号数', data: rows.map(row => row.count), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.18)', tension: 0.35, fill: true, pointRadius: 0}]
+        });
+    }
+
+    function renderRechargeChart(rows) {
+        const cnyRows = rows.filter(row => row.currency === 'cny');
+        upsertChart('rechargeChart', 'bar', 'rechargeChart', {
+            labels: cnyRows.map(row => row.day),
+            datasets: [{label: 'CNY', data: cnyRows.map(row => Number(row.amount || 0)), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.58)'}]
+        });
+    }
+
+    function renderActivityChart(activeRows, registrationRows) {
+        const labels = mergeLabels(activeRows.map(row => row.day), registrationRows.map(row => row.day));
+        upsertChart('activityChart', 'line', 'activityChart', {
+            labels,
+            datasets: [
+                {label: '日活', data: valuesByLabel(labels, activeRows, 'count'), borderColor: '#ffd166', backgroundColor: 'rgba(255, 209, 102, 0.14)', tension: 0.35},
+                {label: '注册', data: valuesByLabel(labels, registrationRows, 'count'), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.14)', tension: 0.35}
+            ]
+        });
+    }
+
+    function renderSkinChart(rows) {
+        upsertChart('skinChart', 'bar', 'skinChart', {
+            labels: rows.map(row => row.day),
+            datasets: [
+                {label: '免费领取', data: rows.map(row => row.free_count), backgroundColor: 'rgba(84, 167, 255, 0.62)'},
+                {label: '购买', data: rows.map(row => row.purchase_count), backgroundColor: 'rgba(255, 209, 102, 0.72)'}
+            ]
+        }, {scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}});
+    }
+
+    function renderItemPurchaseChart(rows) {
+        upsertChart('itemPurchaseChart', 'bar', 'itemPurchaseChart', {
+            labels: rows.map(row => row.item_name),
+            datasets: [{label: '购买数量', data: rows.map(row => row.quantity), backgroundColor: 'rgba(72, 213, 151, 0.62)'}]
+        }, {indexAxis: 'y'});
+    }
+
+    function renderItemUseChart(rows) {
+        upsertChart('itemUseChart', 'bar', 'itemUseChart', {
+            labels: rows.map(row => row.item_name),
+            datasets: [{label: '使用次数', data: rows.map(row => row.quantity), backgroundColor: 'rgba(184, 152, 255, 0.62)'}]
+        }, {indexAxis: 'y'});
+    }
+
+    function renderSkinRows(rows) {
+        if (!markSectionChanged('skinRows', rows)) return;
+        const tbody = document.getElementById('skinRows');
+        tbody.innerHTML = '';
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${escapeHtml(row.claim_time || '-')}</td>
+                <td>${row.hospital_id}</td>
+                <td>${escapeHtml(row.hospital_name || '-')}</td>
+                <td>${escapeHtml(row.director_name || '-')}</td>
+                <td><span class="pill ${row.source === '免费领取' ? 'green' : 'yellow'}">${escapeHtml(row.source || '-')}</span></td>
+                <td>${row.equipped ? '<span class="pill green">是</span>' : '<span class="pill">否</span>'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renderItemActivityRows(id, rows, purchase) {
+        if (!markSectionChanged(id, {rows, purchase})) return;
+        const tbody = document.getElementById(id);
+        tbody.innerHTML = '';
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.className = 'clickable-row';
+            tr.addEventListener('click', () => openItemDetailModal(purchase ? 'purchase' : 'use', row.item_name || ''));
+            tr.innerHTML = purchase
+                ? `<td><button class="item-link" type="button">${escapeHtml(row.item_name || '-')}</button></td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.quantity)}</td><td>${formatNumber(row.yuanbao)}</td>`
+                : `<td><button class="item-link" type="button">${escapeHtml(row.item_name || '-')}</button></td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.quantity)}</td><td>${formatNumber(row.hospital_count)}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function openItemDetailModal(type, itemName) {
+        if (!itemName) return;
+        const modal = document.getElementById('itemModal');
+        setText('itemModalTitle', `${type === 'purchase' ? '道具购买明细' : '道具使用明细'}：${itemName}`);
+        setText('itemModalSubtitle', '近14日，最多显示200个医院');
+        setText('itemModalYuanbaoHead', type === 'purchase' ? '消耗元宝' : '元宝');
+        const tbody = document.getElementById('itemModalRows');
+        tbody.innerHTML = '<tr><td colspan="7">读取中...</td></tr>';
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+        try {
+            const params = new URLSearchParams({type, itemName});
+            const response = await fetch(`/api/item-activity-details?${params}`, {cache: 'no-store'});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            renderItemDetailRows(await response.json(), type);
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="7">读取失败：${escapeHtml(e.message || e)}</td></tr>`;
+        }
+    }
+
+    function closeItemModal() {
+        const modal = document.getElementById('itemModal');
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function renderItemDetailRows(rows, type) {
+        const tbody = document.getElementById('itemModalRows');
+        tbody.innerHTML = '';
+        if (!rows || rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7">没有明细</td></tr>';
+            return;
+        }
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${escapeHtml(row.last_time || '-')}</td><td>${row.hospital_id}</td><td>${escapeHtml(row.hospital_name || '-')}</td><td>${escapeHtml(row.director_name || '-')}</td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.quantity)}</td><td>${type === 'purchase' ? formatNumber(row.yuanbao) : '-'}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function upsertChart(id, type, signatureKey, data, overrideOptions = {}) {
+        const options = buildOptions(overrideOptions);
+        const signature = stableStringify({type, data, options});
+        if (renderState[signatureKey] === signature) return;
+        renderState[signatureKey] = signature;
+        const ctx = document.getElementById(id);
+        if (charts[id]) {
+            charts[id].data = data;
+            charts[id].options = options;
+            charts[id].update('none');
+            return;
+        }
+        charts[id] = new Chart(ctx, {type, data, options});
+    }
+
+    function buildOptions(overrideOptions = {}) {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {mode: 'index', intersect: false},
+            plugins: {
+                legend: {labels: {color: '#c9d8eb', boxWidth: 14}},
+                tooltip: {backgroundColor: 'rgba(7, 17, 31, 0.94)', borderColor: 'rgba(151, 178, 214, 0.34)', borderWidth: 1}
+            },
+            scales: {
+                x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
+                y: {ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true}
+            },
+            ...overrideOptions
+        };
+    }
+
+    function setText(id, text) {
+        const element = document.getElementById(id);
+        const next = text ?? '-';
+        if (element.textContent !== next) element.textContent = next;
+    }
+    function markSectionChanged(key, value) {
+        const signature = stableStringify(value);
+        if (renderState[key] === signature) return false;
+        renderState[key] = signature;
+        return true;
+    }
+    function stableStringify(value) {
+        return JSON.stringify(value, (_key, current) => {
+            if (!current || typeof current !== 'object' || Array.isArray(current)) return current;
+            return Object.keys(current).sort().reduce((result, key) => {
+                result[key] = current[key];
+                return result;
+            }, {});
+        });
+    }
+    function formatNumber(value) { return Number(value || 0).toLocaleString('zh-CN'); }
+    function formatMoney(value) { return Number(value || 0).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+    function formatDateTime(value) {
+        if (!value) return '-';
+        try { return new Date(value).toLocaleString('zh-CN', {hour12: false}); } catch (_) { return value; }
+    }
+    function mergeLabels(...groups) { return [...new Set(groups.flat())].sort(); }
+    function valuesByLabel(labels, rows, key) {
+        const map = new Map(rows.map(row => [row.day, row[key] || 0]));
+        return labels.map(label => map.get(label) || 0);
+    }
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
+    }
+</script>
+</body>
+</html>

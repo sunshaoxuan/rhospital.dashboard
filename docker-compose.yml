@@ -1,0 +1,14 @@
+services:
+  ops-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hospital-ops-dashboard:local
+    container_name: hospital-ops-dashboard
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PUBLIC_IP:?set DASHBOARD_PUBLIC_IP}:${DASHBOARD_PUBLIC_PORT:-18091}:8091"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
