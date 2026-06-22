@@ -241,7 +241,7 @@ def load_stats_from_prod():
             ),
             "dailyRecharge": load_daily_recharge(conn),
             "dailySkin": load_hourly_skin(conn),
-            "recentSkinOwners": load_recent_skin_owners(conn),
+            "purchaseInsights": load_purchase_insights(conn),
             "itemPurchases": load_item_purchases(conn),
             "itemUsages": load_item_usages(conn),
         }
@@ -293,82 +293,85 @@ def load_hourly_skin(conn):
     )
 
 
-def load_recent_skin_owners(conn):
+def purchase_category_case() -> str:
+    background_names = (
+        "几何迷宫【效】", "空间站【效】", "城镇绿地", "海岛风光", "休假岛", "荒漠高原",
+        "冰天雪地", "鹰愁涧(马年限定)", "绿水青山", "黄沙荒原", "流波地带", "赤岩绝壁",
+        "禁忌遗都", "极地晶域", "迷雾浮岛", "幽冥堡垒",
+    )
+    quoted_backgrounds = ", ".join(f"'{name}'" for name in background_names)
+    return f"""
+        case
+            when item_name like '%%荣耀绿茵%%' then 'skin'
+            when item_name like '%%绿茵盛典%%' or item_name in ({quoted_backgrounds}) then 'background'
+            else 'item'
+        end
+    """
+
+
+def load_purchase_insights(conn):
+    categories = ("item", "background", "skin")
+    return {
+        category: {
+            "top": load_purchase_top(conn, category),
+            "buyers": load_purchase_buyers(conn, category),
+        }
+        for category in categories
+    }
+
+
+def parsed_purchase_cte() -> str:
+    category_case = purchase_category_case()
+    return f"""
+        parsed as (
+            select l.hospital_id, h.hospital_name, h.director_name,
+                   (regexp_match(l.reason, '^商店购买: (.+) x ([0-9]+)$'))[1] as item_name,
+                   ((regexp_match(l.reason, '^商店购买: (.+) x ([0-9]+)$'))[2])::bigint as quantity,
+                   greatest(coalesce(l.old_value, 0) - coalesce(l.new_value, 0), 0) as yuanbao_cost,
+                   l.create_time
+            from t_log_yuanbao l
+            left join t_hospitals h on h.id = l.hospital_id
+            where l.reason ~ '^商店购买: .+ x [0-9]+$'
+              and (l.create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
+        ), categorized as (
+            select *, {category_case} as category
+            from parsed
+            where item_name is not null
+        )
+    """
+
+
+def load_purchase_top(conn, category):
     return query_list(
         conn,
-        """
-        with skin_owned as (
-            select b.hospital_id, coalesce((b.items ->> '1018')::int, 0) as item_count
-            from t_backpack b
-            where jsonb_exists(b.items, '1018') and coalesce((b.items ->> '1018')::int, 0) > 0
-        ), skin_paid as (
-            select hospital_id, min(create_time) as paid_time
-            from t_log_yuanbao
-            where reason = '商店购买: 荣耀绿茵(期间限定) x 1'
-            group by hospital_id
-        ), skin_claim_log as (
-            select hospital_id, min(create_time) as first_claim_time,
-                   bool_or(content = '成功领取1个【荣耀绿茵(期间限定)】') as has_free_log,
-                   bool_or(content = '成功购买1个【荣耀绿茵(期间限定)】') as has_paid_log
-            from t_log_right_bottom
-            where content in ('成功领取1个【荣耀绿茵(期间限定)】', '成功购买1个【荣耀绿茵(期间限定)】')
-            group by hospital_id
-        ), background_events as (
-            select hospital_id, create_time, '扣款购买' as source
-            from t_log_yuanbao
-            where reason = '商店购买: 绿茵盛典【效】(期间限定) x 1'
-            union all
-            select hospital_id, create_time, '购买日志' as source
-            from t_log_right_bottom
-            where content = '成功购买1个【绿茵盛典【效】(期间限定)】'
-        ), background_claim as (
-            select hospital_id, min(create_time) as first_claim_time,
-                   bool_or(source = '扣款购买') as has_paid_yuanbao,
-                   bool_or(source = '购买日志') as has_paid_log
-            from background_events
-            group by hospital_id
-        ), background_used as (
-            select distinct hospital_id
-            from t_log_right_bottom
-            where content = '成功使用【绿茵盛典【效】(期间限定)】物品。'
-        ), all_rows as (
-            select o.hospital_id, h.hospital_name, h.director_name, o.item_count,
-                   '荣耀绿茵' as item_name,
-                   (h.props ->> 'equippedSkin' = 'hospital-fifa2026') as equipped,
-                   case when p.hospital_id is not null then '扣款购买'
-                        when c.has_free_log then '免费领取'
-                        when c.has_paid_log then '购买日志'
-                        else '当前拥有'
-                   end as source,
-                   case when h.props ->> 'equippedSkin' = 'hospital-fifa2026' then '已装备' else '未装备' end as status_label,
-                   coalesce(c.first_claim_time, p.paid_time, h.update_time) as claim_sort
-            from skin_owned o
-            join t_hospitals h on h.id = o.hospital_id
-            left join skin_paid p on p.hospital_id = o.hospital_id
-            left join skin_claim_log c on c.hospital_id = o.hospital_id
-            union all
-            select c.hospital_id, h.hospital_name, h.director_name,
-                   coalesce((b.items ->> '1019')::int, 0) as item_count,
-                   '绿茵盛典' as item_name,
-                   (u.hospital_id is not null) as equipped,
-                   case when c.has_paid_yuanbao then '扣款购买'
-                        when c.has_paid_log then '购买日志'
-                        else '购买'
-                   end as source,
-                   case when u.hospital_id is not null then '已启用' else '未启用' end as status_label,
-                   c.first_claim_time as claim_sort
-            from background_claim c
-            join t_hospitals h on h.id = c.hospital_id
-            left join t_backpack b on b.hospital_id = c.hospital_id
-            left join background_used u on u.hospital_id = c.hospital_id
-        )
-        select hospital_id, hospital_name, director_name, item_count, item_name, equipped, source, status_label,
-               to_char((claim_sort at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as claim_time
-        from all_rows
-        order by claim_sort desc, hospital_id desc, item_name
-        limit 30
+        f"""
+        with {parsed_purchase_cte()}
+        select item_name, count(*) as event_count, count(distinct hospital_id) as hospital_count,
+               coalesce(sum(quantity), 0) as quantity, coalesce(sum(yuanbao_cost), 0) as yuanbao
+        from categorized
+        where category = %s
+        group by item_name
+        order by event_count desc, quantity desc, yuanbao desc, item_name
+        limit 10
         """,
-        (ZONE_ID,),
+        (ZONE_ID, ZONE_ID, category),
+    )
+
+
+def load_purchase_buyers(conn, category):
+    return query_list(
+        conn,
+        f"""
+        with {parsed_purchase_cte()}
+        select to_char((create_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as purchase_time,
+               hospital_id, coalesce(hospital_name, '') as hospital_name, coalesce(director_name, '') as director_name,
+               item_name, quantity, yuanbao_cost as yuanbao
+        from categorized
+        where category = %s
+        order by create_time desc, hospital_id desc, item_name
+        limit 20
+        """,
+        (ZONE_ID, ZONE_ID, ZONE_ID, category),
     )
 
 
@@ -551,9 +554,17 @@ def load_unavailable_stats(error: Exception):
         "dailyActive": [],
         "dailyRegistrations": [],
         "dailySkin": [],
-        "recentSkinOwners": [],
+        "purchaseInsights": empty_purchase_insights(),
         "itemPurchases": [],
         "itemUsages": [],
+    }
+
+
+def empty_purchase_insights():
+    return {
+        "item": {"top": [], "buyers": []},
+        "background": {"top": [], "buyers": []},
+        "skin": {"top": [], "buyers": []},
     }
 
 

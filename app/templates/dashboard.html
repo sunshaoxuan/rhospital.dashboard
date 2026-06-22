@@ -66,6 +66,14 @@
         .chart-box canvas { display: block; width: 100% !important; height: 260px !important; max-height: 260px !important; }
         .wide { grid-column: 1 / -1; }
         .note { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+        .tab-btn {
+            border-color: rgba(151, 178, 214, 0.32);
+            background: rgba(255, 255, 255, 0.05);
+            min-width: 72px;
+        }
+        .tab-btn.active { border-color: rgba(72, 213, 151, 0.68); background: rgba(72, 213, 151, 0.18); }
+        .purchase-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 16px; align-items: start; }
 
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
@@ -127,6 +135,7 @@
         @media (max-width: 1100px) {
             .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
             .grid { grid-template-columns: 1fr; }
+            .purchase-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 680px) {
             .shell { width: min(100vw - 24px, 1480px); padding-top: 18px; }
@@ -175,11 +184,27 @@
             <table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table>
         </div>
         <div class="panel wide">
-            <h2>最近获得荣耀绿茵和绿茵盛典的医院</h2>
-            <table>
-                <thead><tr><th>时间</th><th>内容</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>来源</th><th>状态</th></tr></thead>
-                <tbody id="skinRows"></tbody>
-            </table>
+            <h2>新购统计</h2>
+            <div class="tabs" role="tablist" aria-label="新购统计分类">
+                <button class="tab-btn active" type="button" data-purchase-tab="item">道具</button>
+                <button class="tab-btn" type="button" data-purchase-tab="background">背景</button>
+                <button class="tab-btn" type="button" data-purchase-tab="skin">皮肤</button>
+            </div>
+            <div class="purchase-grid">
+                <div>
+                    <table>
+                        <thead><tr><th>Top 10</th><th>购买次数</th><th>购买医院</th><th>数量</th><th>元宝</th></tr></thead>
+                        <tbody id="purchaseTopRows"></tbody>
+                    </table>
+                </div>
+                <div>
+                    <table>
+                        <thead><tr><th>时间</th><th>购买内容</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>数量</th><th>元宝</th></tr></thead>
+                        <tbody id="purchaseBuyerRows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="note">每个页签展示近14日购买 Top 10 和最近20个购买医院。</div>
         </div>
     </section>
 </main>
@@ -202,9 +227,17 @@
 <script>
     const charts = {};
     const renderState = {};
+    let activePurchaseTab = 'item';
+    let latestPurchaseInsights = {};
 
     document.getElementById('refreshBtn').addEventListener('click', loadStats);
     document.getElementById('itemModalClose').addEventListener('click', closeItemModal);
+    document.querySelectorAll('[data-purchase-tab]').forEach(button => {
+        button.addEventListener('click', () => {
+            activePurchaseTab = button.dataset.purchaseTab;
+            renderPurchaseTabs(latestPurchaseInsights);
+        });
+    });
     document.getElementById('itemModal').addEventListener('click', event => {
         if (event.target.id === 'itemModal') closeItemModal();
     });
@@ -235,7 +268,7 @@
             summary: data.summary || {}, note: data.note || '', zoneId: data.zoneId || '',
             onlineBuckets: data.onlineBuckets || [], dailyRecharge: data.dailyRecharge || [],
             dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [],
-            dailySkin: data.dailySkin || [], recentSkinOwners: data.recentSkinOwners || [],
+            dailySkin: data.dailySkin || [], purchaseInsights: data.purchaseInsights || {},
             itemPurchases: data.itemPurchases || [], itemUsages: data.itemUsages || []
         });
         if (renderState.overallSignature === overallSignature) return;
@@ -260,7 +293,8 @@
         renderSkinChart(data.dailySkin || []);
         renderItemPurchaseChart(data.itemPurchases || []);
         renderItemUseChart(data.itemUsages || []);
-        renderSkinRows(data.recentSkinOwners || []);
+        latestPurchaseInsights = data.purchaseInsights || {};
+        renderPurchaseTabs(latestPurchaseInsights);
         renderItemActivityRows('itemPurchaseRows', data.itemPurchases || [], true);
         renderItemActivityRows('itemUseRows', data.itemUsages || [], false);
     }
@@ -315,21 +349,41 @@
         }, {indexAxis: 'y'});
     }
 
-    function renderSkinRows(rows) {
-        if (!markSectionChanged('skinRows', rows)) return;
-        const tbody = document.getElementById('skinRows');
+    function renderPurchaseTabs(insights) {
+        document.querySelectorAll('[data-purchase-tab]').forEach(button => {
+            button.classList.toggle('active', button.dataset.purchaseTab === activePurchaseTab);
+        });
+        const current = insights[activePurchaseTab] || {top: [], buyers: []};
+        renderPurchaseTopRows(current.top || []);
+        renderPurchaseBuyerRows(current.buyers || []);
+    }
+
+    function renderPurchaseTopRows(rows) {
+        if (!markSectionChanged('purchaseTopRows', {tab: activePurchaseTab, rows})) return;
+        const tbody = document.getElementById('purchaseTopRows');
         tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="5">没有购买记录</td></tr>';
+            return;
+        }
         rows.forEach(row => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${escapeHtml(row.claim_time || '-')}</td>
-                <td>${escapeHtml(row.item_name || '-')}</td>
-                <td>${row.hospital_id}</td>
-                <td>${escapeHtml(row.hospital_name || '-')}</td>
-                <td>${escapeHtml(row.director_name || '-')}</td>
-                <td><span class="pill ${row.source === '免费领取' ? 'green' : 'yellow'}">${escapeHtml(row.source || '-')}</span></td>
-                <td>${row.equipped ? `<span class="pill green">${escapeHtml(row.status_label || '是')}</span>` : `<span class="pill">${escapeHtml(row.status_label || '否')}</span>`}</td>
-            `;
+            tr.innerHTML = `<td>${escapeHtml(row.item_name || '-')}</td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.quantity)}</td><td>${formatNumber(row.yuanbao)}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renderPurchaseBuyerRows(rows) {
+        if (!markSectionChanged('purchaseBuyerRows', {tab: activePurchaseTab, rows})) return;
+        const tbody = document.getElementById('purchaseBuyerRows');
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="7">没有购买记录</td></tr>';
+            return;
+        }
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${escapeHtml(row.purchase_time || '-')}</td><td>${escapeHtml(row.item_name || '-')}</td><td>${row.hospital_id}</td><td>${escapeHtml(row.hospital_name || '-')}</td><td>${escapeHtml(row.director_name || '-')}</td><td>${formatNumber(row.quantity)}</td><td>${formatNumber(row.yuanbao)}</td>`;
             tbody.appendChild(tr);
         });
     }
