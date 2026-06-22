@@ -121,6 +121,11 @@ def load_summary(conn):
             select h.id as hospital_id, h.director_id
             from t_hospitals h
             where h.props ->> 'equippedSkin' = 'hospital-fifa2026'
+        ), green_effect_used as (
+            select distinct h.director_id
+            from t_log_right_bottom r
+            join t_hospitals h on h.id = r.hospital_id
+            where r.content = '成功使用【绿茵盛典【效】(期间限定)】物品。'
         ), free_log as (
             select distinct h.director_id, r.hospital_id
             from t_log_right_bottom r
@@ -156,6 +161,9 @@ def load_summary(conn):
             (select count(distinct director_id) from owned) as skin_owner_accounts,
             (select count(*) from owned) as skin_owner_hospitals,
             (select count(distinct director_id) from equipped) as skin_equipped_accounts,
+            (select count(*)
+               from (select distinct director_id from equipped) e
+               join green_effect_used g on g.director_id = e.director_id) as green_combo_equipped_accounts,
             (select count(distinct director_id) from free_log) as skin_free_accounts,
             (select count(distinct director_id) from paid_log) as skin_purchase_log_accounts,
             (select count(distinct director_id) from paid_yuanbao) as skin_paid_confirmed_accounts,
@@ -484,6 +492,7 @@ def load_unavailable_stats(error: Exception):
         "skin_owner_accounts": 0,
         "skin_owner_hospitals": 0,
         "skin_equipped_accounts": 0,
+        "green_combo_equipped_accounts": 0,
         "skin_free_accounts": 0,
         "skin_purchase_log_accounts": 0,
         "skin_paid_confirmed_accounts": 0,

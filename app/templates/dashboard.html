@@ -156,7 +156,7 @@
         <div class="card"><div class="label">今日注册账号</div><div class="value" id="registrationsToday">-</div><div class="hint">按账号创建时间统计</div></div>
         <div class="card"><div class="label">今日充值金额</div><div class="value" id="rechargeToday">-</div><div class="hint" id="rechargeHint">-</div></div>
         <div class="card"><div class="label">新皮肤拥有账号</div><div class="value" id="skinOwners">-</div><div class="hint" id="skinOwnerHint">-</div></div>
-        <div class="card"><div class="label">新皮肤已装备账号</div><div class="value" id="skinEquipped">-</div><div class="hint">当前正在使用荣耀绿茵</div></div>
+        <div class="card"><div class="label">绿茵组合双双装备账号</div><div class="value" id="skinEquipped">-</div><div class="hint">当前荣耀绿茵，且已启用绿茵盛典</div></div>
     </section>
 
     <section class="grid">
@@ -250,7 +250,7 @@
         setText('rechargeHint', `${formatNumber(s.recharge_orders_today)} 笔，${formatNumber(s.recharge_yuanbao_today)} 元宝`);
         setText('skinOwners', formatNumber(s.skin_owner_accounts));
         setText('skinOwnerHint', `免费 ${formatNumber(s.skin_free_accounts)}，购买日志 ${formatNumber(s.skin_purchase_log_accounts)}，扣款确认 ${formatNumber(s.skin_paid_confirmed_accounts)}`);
-        setText('skinEquipped', formatNumber(s.skin_equipped_accounts));
+        setText('skinEquipped', formatNumber(s.green_combo_equipped_accounts));
         setText('onlineNote', data.note || '');
         setText('skinNote', `上线以来按小时统计。当前拥有医院 ${formatNumber(s.skin_owner_hospitals)}，账号 ${formatNumber(s.skin_owner_accounts)}。`);
 
