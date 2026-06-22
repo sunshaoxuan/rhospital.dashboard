@@ -479,6 +479,37 @@ def load_stats():
     return merge_snapshot_history(stats)
 
 
+def load_unavailable_stats(error: Exception):
+    summary = {
+        "skin_owner_accounts": 0,
+        "skin_owner_hospitals": 0,
+        "skin_equipped_accounts": 0,
+        "skin_free_accounts": 0,
+        "skin_purchase_log_accounts": 0,
+        "skin_paid_confirmed_accounts": 0,
+        "online_now_accounts": 0,
+        "active_today_accounts": 0,
+        "registrations_today": 0,
+        "recharge_cny_today": 0,
+        "recharge_yuanbao_today": 0,
+        "recharge_orders_today": 0,
+    }
+    return {
+        "generatedAt": datetime.now().astimezone().isoformat(),
+        "zoneId": ZONE_ID,
+        "note": f"数据源暂不可用：{error}",
+        "summary": summary,
+        "onlineBuckets": [],
+        "dailyRecharge": [],
+        "dailyActive": [],
+        "dailyRegistrations": [],
+        "dailySkin": [],
+        "recentSkinOwners": [],
+        "itemPurchases": [],
+        "itemUsages": [],
+    }
+
+
 @app.get("/")
 def index():
     return render_template("dashboard.html")
@@ -491,7 +522,11 @@ def healthz():
 
 @app.get("/api/stats")
 def stats_api():
-    return jsonify(load_stats())
+    try:
+        return jsonify(load_stats())
+    except Exception as exc:
+        app.logger.warning("stats unavailable: %s", exc)
+        return jsonify(load_unavailable_stats(exc))
 
 
 @app.get("/api/item-activity-details")
