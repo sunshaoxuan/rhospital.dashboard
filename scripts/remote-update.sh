@@ -22,7 +22,7 @@ docker load -i "$image_tar"
 DASHBOARD_IMAGE="$image_name:$image_tag" docker compose up -d --no-build
 
 sleep 2
-public_port="$(grep '^DASHBOARD_PUBLIC_PORT=' .env 2>/dev/null | tail -n 1 | cut -d= -f2-)"
+public_port="$(grep '^DASHBOARD_PUBLIC_PORT=' .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\r')"
 public_port="${public_port:-18091}"
 curl -fsS "http://127.0.0.1:${public_port}/healthz" >/dev/null
 
