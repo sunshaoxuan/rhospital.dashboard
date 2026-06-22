@@ -484,6 +484,11 @@ def index():
     return render_template("dashboard.html")
 
 
+@app.get("/healthz")
+def healthz():
+    return jsonify({"status": "ok"})
+
+
 @app.get("/api/stats")
 def stats_api():
     return jsonify(load_stats())
@@ -539,4 +544,5 @@ def sampler():
         time.sleep(600)
 
 
-threading.Thread(target=sampler, daemon=True).start()
+if os.getenv("OPS_DASHBOARD_DISABLE_SAMPLER", "").strip().lower() not in {"1", "true", "yes"}:
+    threading.Thread(target=sampler, daemon=True).start()

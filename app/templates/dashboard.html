@@ -220,7 +220,8 @@
         const error = document.getElementById('error');
         error.style.display = 'none';
         try {
-            const response = await fetch('/api/stats', {cache: 'no-store'});
+            const response = await fetch('api/stats', {cache: 'no-store'});
+
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             render(await response.json());
         } catch (e) {
@@ -359,7 +360,8 @@
         modal.setAttribute('aria-hidden', 'false');
         try {
             const params = new URLSearchParams({type, itemName});
-            const response = await fetch(`/api/item-activity-details?${params}`, {cache: 'no-store'});
+            const response = await fetch(`api/item-activity-details?${params}`, {cache: 'no-store'});
+
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             renderItemDetailRows(await response.json(), type);
         } catch (e) {

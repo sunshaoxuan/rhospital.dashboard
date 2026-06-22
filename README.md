@@ -57,3 +57,81 @@ docker compose down
 ## 端口
 
 默认对外端口是 `18091`，容器内部端口是 `8091`。如需更改对外端口，修改 `.env` 中的 `DASHBOARD_PUBLIC_PORT`。
+
+## ccnode 简单发布流程
+
+目标访问地址：
+
+```text
+https://ccnode.briconbric.com/rhdashboard/
+```
+
+远端固定目录：
+
+```text
+/rhdashboard
+```
+
+### 首次远端准备
+
+远端 `/rhdashboard/.env` 必须保留在服务器本地，不随代码发布。至少需要配置真实值：
+
+```env
+DASHBOARD_PUBLIC_IP=127.0.0.1
+DASHBOARD_PUBLIC_PORT=18091
+PROD_DB_URL=postgresql://<PROD_DB_HOST>:<PROD_DB_PORT>/<PROD_DB_NAME>
+PROD_DB_USERNAME=<READ_ONLY_USER>
+PROD_DB_PASSWORD=<READ_ONLY_PASSWORD>
+OPS_DASHBOARD_TIME_ZONE=Asia/Tokyo
+OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS=10
+```
+
+首次使用 `/rhdashboard/` 子路径访问时，需要在 ccnode 上追加 Nginx location：
+
+```bash
+cd /rhdashboard
+sh scripts/configure-ccnode-nginx-rhdashboard.sh
+```
+
+该脚本会先备份 `/etc/nginx/conf.d/xray.conf`，再执行 `nginx -t` 和 `systemctl reload nginx`。
+
+### 日常发布
+
+在 Windows 本地仓库提交代码后运行：
+
+```powershell
+.\scripts\deploy-ccnode.ps1
+```
+
+发布脚本执行顺序：
+
+1. 编译 Python 文件。
+2. 运行单元测试。
+3. 构建本地 Docker 镜像。
+4. 将镜像保存为 `.release/*.tar`。
+5. 推送当前 git 分支到 `origin`。
+6. 上传镜像包、`docker-compose.yml` 和远端更新脚本到 `/rhdashboard/releases/<tag>/`。
+7. 远端 `docker load` 镜像并用 `docker compose up -d --no-build` 更新容器。
+8. 检查 `http://127.0.0.1:18091/healthz`。
+9. 清理不再使用的旧镜像。
+
+如只想演练上传和远端更新，不推送 git：
+
+```powershell
+.\scripts\deploy-ccnode.ps1 -SkipGitPush
+```
+
+### 回滚
+
+远端镜像以提交号和 UTC 时间组成标签。需要回滚时，在 ccnode 上指定旧标签启动：
+
+```bash
+cd /rhdashboard
+DASHBOARD_IMAGE=hospital-ops-dashboard:<OLD_TAG> docker compose up -d --no-build
+```
+
+如 Nginx 配置需要回滚，使用脚本输出的备份文件覆盖 `/etc/nginx/conf.d/xray.conf`，随后执行：
+
+```bash
+nginx -t && systemctl reload nginx
+```

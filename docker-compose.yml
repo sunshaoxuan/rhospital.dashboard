@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: hospital-ops-dashboard:local
+    image: ${DASHBOARD_IMAGE:-hospital-ops-dashboard:local}
     container_name: hospital-ops-dashboard
     restart: unless-stopped
     ports:
