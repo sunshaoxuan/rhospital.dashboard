@@ -20,9 +20,11 @@
         }
 
         * { box-sizing: border-box; }
+        html { overflow-x: hidden; }
         body {
             margin: 0;
             min-height: 100vh;
+            overflow-x: hidden;
             color: var(--text);
             background:
                 radial-gradient(circle at 18% 16%, rgba(84, 167, 255, 0.24), transparent 30%),
@@ -49,6 +51,7 @@
 
         .cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
         .card, .panel {
+            min-width: 0;
             border: 1px solid var(--line);
             background: var(--panel);
             border-radius: 8px;
@@ -66,8 +69,9 @@
         .chart-box canvas { display: block; width: 100% !important; height: 260px !important; max-height: 260px !important; }
         .wide { grid-column: 1 / -1; }
         .note { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
-        .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; scrollbar-width: thin; }
         .tab-btn {
+            flex: 0 0 auto;
             border-color: rgba(151, 178, 214, 0.32);
             background: rgba(255, 255, 255, 0.05);
             min-width: 72px;
@@ -75,7 +79,16 @@
         .tab-btn.active { border-color: rgba(72, 213, 151, 0.68); background: rgba(72, 213, 151, 0.18); }
         .purchase-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 16px; align-items: start; }
 
-        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .table-scroll {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 8px;
+            scrollbar-width: thin;
+        }
+        table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
+        .purchase-grid table { min-width: 680px; }
+        .modal table { min-width: 760px; }
         th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
         th { color: #c9d8eb; font-weight: 700; background: rgba(255, 255, 255, 0.03); }
         td { color: #e8f1ff; }
@@ -138,9 +151,37 @@
             .purchase-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 680px) {
-            .shell { width: min(100vw - 24px, 1480px); padding-top: 18px; }
-            .topbar { align-items: flex-start; flex-direction: column; }
-            .cards { grid-template-columns: 1fr; }
+            .shell { width: 100%; padding: 14px 12px 24px; }
+            .topbar { align-items: flex-start; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+            h1 { font-size: 22px; line-height: 1.2; }
+            .subtitle { margin-top: 6px; font-size: 12px; line-height: 1.5; }
+            .toolbar { width: 100%; justify-content: space-between; gap: 10px; white-space: normal; }
+            .toolbar span { min-width: 0; overflow-wrap: anywhere; }
+            button { padding: 8px 10px; }
+            .cards { grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
+            .card { min-height: auto; padding: 12px; }
+            .card .label { margin-bottom: 8px; font-size: 12px; }
+            .card .value { font-size: 24px; }
+            .card .hint { margin-top: 8px; }
+            .grid { gap: 12px; }
+            .panel { min-height: auto; padding: 12px; }
+            .panel h2 { margin-bottom: 12px; font-size: 15px; line-height: 1.35; }
+            .chart-box { height: 220px; max-height: 220px; }
+            .chart-box canvas { height: 220px !important; max-height: 220px !important; }
+            .tabs { margin-bottom: 12px; padding-bottom: 2px; }
+            .tab-btn { min-width: 64px; }
+            th, td { padding: 9px 8px; font-size: 12px; }
+            .note { margin-top: 10px; font-size: 11px; }
+            .modal-backdrop { align-items: flex-start; justify-content: center; padding: 12px; }
+            .modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
+            .modal-head { gap: 12px; padding: 12px; }
+            .modal-title { font-size: 16px; }
+            .modal-close { flex: 0 0 auto; }
+            .modal-body { max-height: calc(100vh - 96px); padding: 10px 12px 14px; }
+        }
+        @media (max-width: 420px) {
+            .chart-box { height: 200px; max-height: 200px; }
+            .chart-box canvas { height: 200px !important; max-height: 200px !important; }
         }
     </style>
 </head>
@@ -176,12 +217,12 @@
         <div class="panel">
             <h2>近14日道具购买 Top 12</h2>
             <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
-            <table><thead><tr><th>道具</th><th>购买次数</th><th>数量</th><th>消耗元宝</th></tr></thead><tbody id="itemPurchaseRows"></tbody></table>
+            <div class="table-scroll"><table><thead><tr><th>道具</th><th>购买次数</th><th>数量</th><th>消耗元宝</th></tr></thead><tbody id="itemPurchaseRows"></tbody></table></div>
         </div>
         <div class="panel">
             <h2>近14日道具使用 Top 12</h2>
             <div class="chart-box"><canvas id="itemUseChart"></canvas></div>
-            <table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table>
+            <div class="table-scroll"><table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table></div>
         </div>
         <div class="panel wide">
             <h2>新购统计</h2>
@@ -192,16 +233,16 @@
             </div>
             <div class="purchase-grid">
                 <div>
-                    <table>
+                    <div class="table-scroll"><table>
                         <thead><tr><th>Top 10</th><th>购买次数</th><th>购买医院</th><th>数量</th><th>元宝</th></tr></thead>
                         <tbody id="purchaseTopRows"></tbody>
-                    </table>
+                    </table></div>
                 </div>
                 <div>
-                    <table>
+                    <div class="table-scroll"><table>
                         <thead><tr><th>时间</th><th>购买内容</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>数量</th><th>元宝</th></tr></thead>
                         <tbody id="purchaseBuyerRows"></tbody>
-                    </table>
+                    </table></div>
                 </div>
             </div>
             <div class="note">每个页签展示近14日购买 Top 10 和最近20个购买医院。</div>
@@ -216,10 +257,10 @@
             <button class="modal-close" id="itemModalClose" type="button">关闭</button>
         </div>
         <div class="modal-body">
-            <table>
+            <div class="table-scroll"><table>
                 <thead><tr><th>最后时间</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>次数</th><th>数量</th><th id="itemModalYuanbaoHead">元宝</th></tr></thead>
                 <tbody id="itemModalRows"></tbody>
-            </table>
+            </table></div>
         </div>
     </div>
 </div>
