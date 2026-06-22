@@ -297,37 +297,75 @@ def load_recent_skin_owners(conn):
     return query_list(
         conn,
         """
-        with owned as (
+        with skin_owned as (
             select b.hospital_id, coalesce((b.items ->> '1018')::int, 0) as item_count
             from t_backpack b
             where jsonb_exists(b.items, '1018') and coalesce((b.items ->> '1018')::int, 0) > 0
-        ), paid as (
+        ), skin_paid as (
             select hospital_id, min(create_time) as paid_time
             from t_log_yuanbao
             where reason = '商店购买: 荣耀绿茵(期间限定) x 1'
             group by hospital_id
-        ), claim_log as (
+        ), skin_claim_log as (
             select hospital_id, min(create_time) as first_claim_time,
                    bool_or(content = '成功领取1个【荣耀绿茵(期间限定)】') as has_free_log,
                    bool_or(content = '成功购买1个【荣耀绿茵(期间限定)】') as has_paid_log
             from t_log_right_bottom
             where content in ('成功领取1个【荣耀绿茵(期间限定)】', '成功购买1个【荣耀绿茵(期间限定)】')
             group by hospital_id
+        ), background_events as (
+            select hospital_id, create_time, '扣款购买' as source
+            from t_log_yuanbao
+            where reason = '商店购买: 绿茵盛典【效】(期间限定) x 1'
+            union all
+            select hospital_id, create_time, '购买日志' as source
+            from t_log_right_bottom
+            where content = '成功购买1个【绿茵盛典【效】(期间限定)】'
+        ), background_claim as (
+            select hospital_id, min(create_time) as first_claim_time,
+                   bool_or(source = '扣款购买') as has_paid_yuanbao,
+                   bool_or(source = '购买日志') as has_paid_log
+            from background_events
+            group by hospital_id
+        ), background_used as (
+            select distinct hospital_id
+            from t_log_right_bottom
+            where content = '成功使用【绿茵盛典【效】(期间限定)】物品。'
+        ), all_rows as (
+            select o.hospital_id, h.hospital_name, h.director_name, o.item_count,
+                   '荣耀绿茵' as item_name,
+                   (h.props ->> 'equippedSkin' = 'hospital-fifa2026') as equipped,
+                   case when p.hospital_id is not null then '扣款购买'
+                        when c.has_free_log then '免费领取'
+                        when c.has_paid_log then '购买日志'
+                        else '当前拥有'
+                   end as source,
+                   case when h.props ->> 'equippedSkin' = 'hospital-fifa2026' then '已装备' else '未装备' end as status_label,
+                   coalesce(c.first_claim_time, p.paid_time, h.update_time) as claim_sort
+            from skin_owned o
+            join t_hospitals h on h.id = o.hospital_id
+            left join skin_paid p on p.hospital_id = o.hospital_id
+            left join skin_claim_log c on c.hospital_id = o.hospital_id
+            union all
+            select c.hospital_id, h.hospital_name, h.director_name,
+                   coalesce((b.items ->> '1019')::int, 0) as item_count,
+                   '绿茵盛典' as item_name,
+                   (u.hospital_id is not null) as equipped,
+                   case when c.has_paid_yuanbao then '扣款购买'
+                        when c.has_paid_log then '购买日志'
+                        else '购买'
+                   end as source,
+                   case when u.hospital_id is not null then '已启用' else '未启用' end as status_label,
+                   c.first_claim_time as claim_sort
+            from background_claim c
+            join t_hospitals h on h.id = c.hospital_id
+            left join t_backpack b on b.hospital_id = c.hospital_id
+            left join background_used u on u.hospital_id = c.hospital_id
         )
-        select o.hospital_id, h.hospital_name, h.director_name, o.item_count,
-               (h.props ->> 'equippedSkin' = 'hospital-fifa2026') as equipped,
-               case when p.hospital_id is not null then '扣款购买'
-                    when c.has_free_log then '免费领取'
-                    when c.has_paid_log then '购买日志'
-                    else '当前拥有'
-               end as source,
-               to_char((coalesce(c.first_claim_time, p.paid_time, h.update_time) at time zone 'UTC' at time zone %s),
-                       'YYYY-MM-DD HH24:MI') as claim_time
-        from owned o
-        join t_hospitals h on h.id = o.hospital_id
-        left join paid p on p.hospital_id = o.hospital_id
-        left join claim_log c on c.hospital_id = o.hospital_id
-        order by coalesce(c.first_claim_time, p.paid_time, h.update_time) desc, o.hospital_id desc
+        select hospital_id, hospital_name, director_name, item_count, item_name, equipped, source, status_label,
+               to_char((claim_sort at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as claim_time
+        from all_rows
+        order by claim_sort desc, hospital_id desc, item_name
         limit 30
         """,
         (ZONE_ID,),

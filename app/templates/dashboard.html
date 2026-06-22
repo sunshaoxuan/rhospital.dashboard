@@ -175,9 +175,9 @@
             <table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table>
         </div>
         <div class="panel wide">
-            <h2>最近获得荣耀绿茵的医院</h2>
+            <h2>最近获得荣耀绿茵和绿茵盛典的医院</h2>
             <table>
-                <thead><tr><th>时间</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>来源</th><th>已装备</th></tr></thead>
+                <thead><tr><th>时间</th><th>内容</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>来源</th><th>状态</th></tr></thead>
                 <tbody id="skinRows"></tbody>
             </table>
         </div>
@@ -323,11 +323,12 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${escapeHtml(row.claim_time || '-')}</td>
+                <td>${escapeHtml(row.item_name || '-')}</td>
                 <td>${row.hospital_id}</td>
                 <td>${escapeHtml(row.hospital_name || '-')}</td>
                 <td>${escapeHtml(row.director_name || '-')}</td>
                 <td><span class="pill ${row.source === '免费领取' ? 'green' : 'yellow'}">${escapeHtml(row.source || '-')}</span></td>
-                <td>${row.equipped ? '<span class="pill green">是</span>' : '<span class="pill">否</span>'}</td>
+                <td>${row.equipped ? `<span class="pill green">${escapeHtml(row.status_label || '是')}</span>` : `<span class="pill">${escapeHtml(row.status_label || '否')}</span>`}</td>
             `;
             tbody.appendChild(tr);
         });
