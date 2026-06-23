@@ -1,8 +1,11 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 
 os.environ["OPS_DASHBOARD_DISABLE_SAMPLER"] = "1"
 
+import app.app as app_module
 from app.app import app
 
 
@@ -21,6 +24,47 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/healthz", rules)
         self.assertIn("/api/stats", rules)
         self.assertIn("/api/item-activity-details", rules)
+
+    def test_merge_snapshot_history_prefers_recent_prod_recharge(self):
+        old_data_dir = app_module.DATA_DIR
+        old_sqlite_path = app_module.SQLITE_PATH
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_module.DATA_DIR = Path(temp_dir)
+            app_module.SQLITE_PATH = Path(temp_dir) / "ops_dashboard.sqlite3"
+            try:
+                app_module.ensure_snapshot_table()
+                with app_module.sqlite_connection() as conn:
+                    conn.execute(
+                        """
+                        insert into daily_snapshot (
+                            day, generated_at, online_now_accounts, max_online_now_accounts,
+                            active_today_accounts, registrations_today,
+                            recharge_cny_today, recharge_yuanbao_today, recharge_orders_today,
+                            skin_owner_accounts, skin_equipped_accounts, skin_free_accounts,
+                            skin_purchase_log_accounts, skin_paid_confirmed_accounts
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        ("2026-06-22", "2026-06-22T00:00:00+09:00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                    )
+                stats = {
+                    "dailyActive": [{"day": "2026-06-22", "count": 12}],
+                    "dailyRegistrations": [{"day": "2026-06-22", "count": 3}],
+                    "dailyRecharge": [
+                        {"day": "2026-06-22", "currency": "cny", "orders": 1, "amount": 120.0, "yuanbao": 750}
+                    ],
+                }
+
+                merged = app_module.merge_snapshot_history(stats)
+
+                self.assertEqual(merged["dailyActive"], [{"day": "2026-06-22", "count": 12}])
+                self.assertEqual(merged["dailyRegistrations"], [{"day": "2026-06-22", "count": 3}])
+                self.assertEqual(
+                    merged["dailyRecharge"],
+                    [{"day": "2026-06-22", "currency": "cny", "orders": 1, "amount": 120.0, "yuanbao": 750}],
+                )
+            finally:
+                app_module.DATA_DIR = old_data_dir
+                app_module.SQLITE_PATH = old_sqlite_path
 
 
 if __name__ == "__main__":

@@ -43,11 +43,15 @@ def prod_connection():
         yield conn
 
 
+@contextmanager
 def sqlite_connection():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def ensure_snapshot_table():
@@ -503,9 +507,9 @@ def merge_snapshot_history(stats):
     if not rows:
         return stats
     active = {row["day"]: row["active_today_accounts"] for row in rows}
-    registrations = [{"day": row["day"], "count": row["registrations_today"]} for row in rows]
-    recharge = [
-        {
+    registrations = {row["day"]: row["registrations_today"] for row in rows}
+    recharge = {
+        (row["day"], "cny"): {
             "day": row["day"],
             "currency": "cny",
             "orders": row["recharge_orders_today"],
@@ -513,12 +517,16 @@ def merge_snapshot_history(stats):
             "yuanbao": row["recharge_yuanbao_today"],
         }
         for row in rows
-    ]
+    }
     for row in stats["dailyActive"]:
         active[row["day"]] = row["count"]
+    for row in stats["dailyRegistrations"]:
+        registrations[row["day"]] = row["count"]
+    for row in stats["dailyRecharge"]:
+        recharge[(row["day"], row["currency"])] = row
     stats["dailyActive"] = [{"day": day, "count": count} for day, count in sorted(active.items())]
-    stats["dailyRegistrations"] = registrations
-    stats["dailyRecharge"] = recharge
+    stats["dailyRegistrations"] = [{"day": day, "count": count} for day, count in sorted(registrations.items())]
+    stats["dailyRecharge"] = [row for _, row in sorted(recharge.items())]
     return stats
 
 
