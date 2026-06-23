@@ -49,7 +49,7 @@
         }
         button:hover { background: rgba(84, 167, 255, 0.28); }
 
-        .cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 16px; }
         .card, .panel {
             min-width: 0;
             border: 1px solid var(--line);
@@ -205,7 +205,8 @@
         <div class="card"><div class="label">10分钟在线账号</div><div class="value" id="onlineNow">-</div><div class="hint">按最后心跳小于等于10分钟统计</div></div>
         <div class="card"><div class="label">今日日活账号</div><div class="value" id="activeToday">-</div><div class="hint">按进入游戏日志落在今天统计</div></div>
         <div class="card"><div class="label">今日注册账号</div><div class="value" id="registrationsToday">-</div><div class="hint">按账号创建时间统计</div></div>
-        <div class="card"><div class="label">今日充值金额</div><div class="value" id="rechargeToday">-</div><div class="hint" id="rechargeHint">-</div></div>
+        <div class="card"><div class="label">今日 Stripe 收入</div><div class="value" id="stripeRechargeToday">-</div><div class="hint" id="stripeRechargeHint">-</div></div>
+        <div class="card"><div class="label">今日 Steam 收入</div><div class="value" id="steamRechargeToday">-</div><div class="hint" id="steamRechargeHint">-</div></div>
         <div class="card"><div class="label">新皮肤拥有账号</div><div class="value" id="skinOwners">-</div><div class="hint" id="skinOwnerHint">-</div></div>
         <div class="card"><div class="label">绿茵组合双双装备账号</div><div class="value" id="skinEquipped">-</div><div class="hint">当前荣耀绿茵，且已启用绿茵盛典</div></div>
     </section>
@@ -321,8 +322,10 @@
         setText('onlineNow', formatNumber(s.online_now_accounts));
         setText('activeToday', formatNumber(s.active_today_accounts));
         setText('registrationsToday', formatNumber(s.registrations_today));
-        setText('rechargeToday', `¥${formatMoney(s.recharge_cny_today)}`);
-        setText('rechargeHint', `${formatNumber(s.recharge_orders_today)} 笔，${formatNumber(s.recharge_yuanbao_today)} 元宝`);
+        setText('stripeRechargeToday', `¥${formatMoney(s.stripe_recharge_cny_today)}`);
+        setText('stripeRechargeHint', `${formatNumber(s.stripe_recharge_orders_today)} 笔，${formatNumber(s.stripe_recharge_yuanbao_today)} 元宝`);
+        setText('steamRechargeToday', `¥${formatMoney(s.steam_recharge_cny_today)}`);
+        setText('steamRechargeHint', `${formatNumber(s.steam_recharge_orders_today)} 笔，${formatNumber(s.steam_recharge_yuanbao_today)} 元宝`);
         setText('skinOwners', formatNumber(s.skin_owner_accounts));
         setText('skinOwnerHint', `免费 ${formatNumber(s.skin_free_accounts)}，购买日志 ${formatNumber(s.skin_purchase_log_accounts)}，扣款确认 ${formatNumber(s.skin_paid_confirmed_accounts)}`);
         setText('skinEquipped', formatNumber(s.green_combo_equipped_accounts));

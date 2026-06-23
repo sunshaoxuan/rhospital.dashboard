@@ -146,17 +146,17 @@ def load_summary(conn):
             join t_hospitals h on h.id = l.hospital_id
             where l.reason = '商店购买: 荣耀绿茵(期间限定) x 1'
         ), recharge_today as (
-            select amount, currency, yuanbao_amount
+            select 'stripe' as source, amount, currency, yuanbao_amount
             from t_payment_orders
             where status = 'COMPLETED'
               and (update_time at time zone 'UTC' at time zone %s)::date = (now() at time zone %s)::date
             union all
-            select amount, currency, yuanbao_amount
+            select 'paddle' as source, amount, currency, yuanbao_amount
             from t_paddle_payment_orders
             where status = 'COMPLETED'
               and (update_time at time zone 'UTC' at time zone %s)::date = (now() at time zone %s)::date
             union all
-            select amount, currency, yuanbao_amount
+            select 'steam' as source, amount, currency, yuanbao_amount
             from t_steam_payment_orders
             where status = 'COMPLETED' and delivered is true
               and (update_time at time zone 'UTC' at time zone %s)::date = (now() at time zone %s)::date
@@ -185,11 +185,19 @@ def load_summary(conn):
               where (create_time at time zone 'UTC' at time zone %s)::date = (now() at time zone %s)::date) as registrations_today,
             (select coalesce(sum(amount), 0) from recharge_today where lower(currency) = 'cny') as recharge_cny_minor_today,
             (select coalesce(sum(yuanbao_amount), 0) from recharge_today) as recharge_yuanbao_today,
-            (select count(*) from recharge_today) as recharge_orders_today
+            (select count(*) from recharge_today) as recharge_orders_today,
+            (select coalesce(sum(amount), 0) from recharge_today where source = 'stripe' and lower(currency) = 'cny') as stripe_recharge_cny_minor_today,
+            (select coalesce(sum(yuanbao_amount), 0) from recharge_today where source = 'stripe') as stripe_recharge_yuanbao_today,
+            (select count(*) from recharge_today where source = 'stripe') as stripe_recharge_orders_today,
+            (select coalesce(sum(amount), 0) from recharge_today where source = 'steam' and lower(currency) = 'cny') as steam_recharge_cny_minor_today,
+            (select coalesce(sum(yuanbao_amount), 0) from recharge_today where source = 'steam') as steam_recharge_yuanbao_today,
+            (select count(*) from recharge_today where source = 'steam') as steam_recharge_orders_today
         """,
         (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
     )
     row["recharge_cny_today"] = major_amount(row.pop("recharge_cny_minor_today", 0))
+    row["stripe_recharge_cny_today"] = major_amount(row.pop("stripe_recharge_cny_minor_today", 0))
+    row["steam_recharge_cny_today"] = major_amount(row.pop("steam_recharge_cny_minor_today", 0))
     return row
 
 
@@ -551,6 +559,12 @@ def load_unavailable_stats(error: Exception):
         "recharge_cny_today": 0,
         "recharge_yuanbao_today": 0,
         "recharge_orders_today": 0,
+        "stripe_recharge_cny_today": 0,
+        "stripe_recharge_yuanbao_today": 0,
+        "stripe_recharge_orders_today": 0,
+        "steam_recharge_cny_today": 0,
+        "steam_recharge_yuanbao_today": 0,
+        "steam_recharge_orders_today": 0,
     }
     return {
         "generatedAt": datetime.now().astimezone().isoformat(),
