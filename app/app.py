@@ -254,7 +254,7 @@ def load_stats_from_prod():
                 (ZONE_ID, ZONE_ID, ZONE_ID),
             ),
             "dailyRecharge": load_daily_recharge(conn),
-            "dailySkin": load_hourly_skin(conn),
+            "hourlyYuanbaoSpending": load_hourly_yuanbao_spending(conn),
             "itemPurchases": load_item_purchases(conn),
             "itemUsages": load_item_usages(conn),
         }
@@ -289,20 +289,23 @@ def load_daily_recharge(conn):
     return rows
 
 
-def load_hourly_skin(conn):
+def load_hourly_yuanbao_spending(conn):
     return query_list(
         conn,
         """
         select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s),
-                       'MM-DD HH24:00') as day,
-               sum(case when content = '成功领取1个【荣耀绿茵(期间限定)】' then 1 else 0 end) as free_count,
-               sum(case when content = '成功购买1个【荣耀绿茵(期间限定)】' then 1 else 0 end) as purchase_count
-        from t_log_right_bottom
-        where content in ('成功领取1个【荣耀绿茵(期间限定)】', '成功购买1个【荣耀绿茵(期间限定)】')
-        group by day
+                       'MM-DD HH24:00') as label,
+               count(*) as event_count,
+               coalesce(sum(greatest(coalesce(old_value, 0) - coalesce(new_value, 0), 0)), 0) as yuanbao_spent
+        from t_log_yuanbao
+        where old_value is not null
+          and new_value is not null
+          and old_value > new_value
+          and (create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
+        group by label
         order by min(create_time)
         """,
-        (ZONE_ID,),
+        (ZONE_ID, ZONE_ID, ZONE_ID),
     )
 
 
@@ -796,7 +799,7 @@ def load_unavailable_stats(error: Exception):
         "dailyRecharge": [],
         "dailyActive": [],
         "dailyRegistrations": [],
-        "dailySkin": [],
+        "hourlyYuanbaoSpending": [],
         "itemPurchases": [],
         "itemUsages": [],
     }
