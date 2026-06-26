@@ -3,9 +3,10 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg
 from flask import Flask, jsonify, render_template, request
@@ -20,6 +21,10 @@ STAT_TABLE_PAGE_SIZES = {20, 50, 100}
 STAT_TABLE_TABS = {"items", "money", "yuanbao", "prestige", "guild", "registrants"}
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
+
+
+def now_in_zone():
+    return datetime.now(ZoneInfo(ZONE_ID))
 
 
 def require_config(name: str) -> str:
@@ -207,9 +212,9 @@ def load_stats_from_prod():
     with prod_connection() as conn:
         summary = load_summary(conn)
         stats = {
-            "generatedAt": datetime.now().astimezone().isoformat(),
+            "generatedAt": now_in_zone().isoformat(),
             "zoneId": ZONE_ID,
-            "note": "在线历史来自医院最后心跳时间；最近7日日活来自进入游戏日志。",
+            "note": "在线历史来自医院最后心跳时间；最近14日日活来自进入游戏日志。",
             "summary": summary,
             "onlineBuckets": query_list(
                 conn,
@@ -247,7 +252,7 @@ def load_stats_from_prod():
                 from t_log_right_bottom r
                 join t_hospitals h on h.id = r.hospital_id
                 where r.content like '%%院长 驾到主持工作%%'
-                  and (r.create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 6
+                  and (r.create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
                 group by day
                 order by day
                 """,
@@ -686,7 +691,7 @@ def load_registrant_table(conn, page, page_size):
 def record_snapshot(stats):
     ensure_snapshot_table()
     summary = stats["summary"]
-    day = datetime.fromisoformat(stats["generatedAt"]).date().isoformat()
+    day = datetime.fromisoformat(stats["generatedAt"]).astimezone(ZoneInfo(ZONE_ID)).date().isoformat()
     with sqlite_connection() as conn:
         old = conn.execute("select max_online_now_accounts from daily_snapshot where day = ?", (day,)).fetchone()
         max_online = max(int(old["max_online_now_accounts"]) if old else 0, int(summary["online_now_accounts"]))
@@ -734,8 +739,9 @@ def record_snapshot(stats):
 
 def merge_snapshot_history(stats):
     ensure_snapshot_table()
+    cutoff = (now_in_zone().date() - timedelta(days=13)).isoformat()
     with sqlite_connection() as conn:
-        rows = conn.execute("select * from daily_snapshot order by day").fetchall()
+        rows = conn.execute("select * from daily_snapshot where day >= ? order by day", (cutoff,)).fetchall()
     if not rows:
         return stats
     active = {row["day"]: row["active_today_accounts"] for row in rows}
@@ -791,7 +797,7 @@ def load_unavailable_stats(error: Exception):
         "steam_recharge_orders_today": 0,
     }
     return {
-        "generatedAt": datetime.now().astimezone().isoformat(),
+        "generatedAt": now_in_zone().isoformat(),
         "zoneId": ZONE_ID,
         "note": f"数据源暂不可用：{error}",
         "summary": summary,
