@@ -23,6 +23,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/", rules)
         self.assertIn("/healthz", rules)
         self.assertIn("/api/stats", rules)
+        self.assertIn("/api/stat-table", rules)
         self.assertIn("/api/item-activity-details", rules)
 
     def test_merge_snapshot_history_prefers_recent_prod_recharge(self):

@@ -16,6 +16,8 @@ DATA_DIR = Path(os.getenv("OPS_DASHBOARD_DATA_DIR", "/data"))
 SQLITE_PATH = DATA_DIR / "ops_dashboard.sqlite3"
 ZONE_ID = os.getenv("OPS_DASHBOARD_TIME_ZONE", "Asia/Tokyo")
 QUERY_TIMEOUT_SECONDS = int(os.getenv("OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS", "10"))
+STAT_TABLE_PAGE_SIZES = {20, 50, 100}
+STAT_TABLE_TABS = {"items", "money", "yuanbao", "prestige", "guild", "registrants"}
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
 
@@ -253,7 +255,6 @@ def load_stats_from_prod():
             ),
             "dailyRecharge": load_daily_recharge(conn),
             "dailySkin": load_hourly_skin(conn),
-            "purchaseInsights": load_purchase_insights(conn),
             "itemPurchases": load_item_purchases(conn),
             "itemUsages": load_item_usages(conn),
         }
@@ -459,6 +460,226 @@ def item_usage_sql(mode):
     """
 
 
+def parse_page_args():
+    tab = request.args.get("tab", "items").strip().lower()
+    if tab not in STAT_TABLE_TABS:
+        tab = "items"
+    try:
+        page = max(int(request.args.get("page", "1")), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get("pageSize", "20"))
+    except ValueError:
+        page_size = 20
+    if page_size not in STAT_TABLE_PAGE_SIZES:
+        page_size = 20
+    return tab, page, page_size
+
+
+def paged_query(conn, count_sql, rows_sql, params, page, page_size, count_params=()):
+    total = int(query_one(conn, count_sql, count_params).get("total", 0))
+    offset = (page - 1) * page_size
+    rows = query_list(conn, rows_sql, (*params, page_size, offset))
+    return total, rows
+
+
+def load_stat_table(tab, page, page_size):
+    with prod_connection() as conn:
+        if tab == "items":
+            payload = load_item_stat_table(conn, page, page_size)
+        elif tab == "money":
+            payload = load_hospital_value_table(conn, "money", "金钱", page, page_size)
+        elif tab == "yuanbao":
+            payload = load_hospital_value_table(conn, "ingot", "元宝", page, page_size)
+        elif tab == "prestige":
+            payload = load_hospital_value_table(conn, "prestige", "声望", page, page_size)
+        elif tab == "guild":
+            payload = load_guild_table(conn, page, page_size)
+        else:
+            payload = load_registrant_table(conn, page, page_size)
+    payload.update({"tab": tab, "page": page, "pageSize": page_size})
+    return payload
+
+
+def load_item_stat_table(conn, page, page_size):
+    count_sql = """
+        with item_names as (
+            select (regexp_match(reason, '^商店购买: (.+) x ([0-9]+)$'))[1] as item_name
+            from t_log_yuanbao
+            where reason ~ '^商店购买: .+ x [0-9]+$'
+            union
+            select case
+                       when content ~ '^成功批量使用【.+】物品[0-9]+次' then regexp_replace(content, '^成功批量使用【(.+)】物品([0-9]+)次.*$', '\\1')
+                       when content ~ '^成功使用【.+】物品' then regexp_replace(content, '^成功使用【(.+)】物品.*$', '\\1')
+                       when content ~ '^批量打开【.+】[0-9]+次获得' then regexp_replace(content, '^批量打开【(.+)】([0-9]+)次获得.*$', '\\1')
+                       when content ~ '^打开【.+】获得' then regexp_replace(content, '^打开【(.+)】获得.*$', '\\1')
+                       else null
+                   end as item_name
+            from t_log_right_bottom
+            where content like '成功使用【%%' or content like '成功批量使用【%%' or content like '打开【%%' or content like '批量打开【%%'
+        )
+        select count(*) as total
+        from item_names
+        where item_name is not null
+    """
+    rows_sql = """
+        with purchases as (
+            select (regexp_match(reason, '^商店购买: (.+) x ([0-9]+)$'))[1] as item_name,
+                   ((regexp_match(reason, '^商店购买: (.+) x ([0-9]+)$'))[2])::bigint as quantity,
+                   greatest(coalesce(old_value, 0) - coalesce(new_value, 0), 0) as yuanbao_cost
+            from t_log_yuanbao
+            where reason ~ '^商店购买: .+ x [0-9]+$'
+        ), purchase_summary as (
+            select item_name, count(*) as purchase_events, coalesce(sum(quantity), 0) as purchased_quantity,
+                   coalesce(sum(yuanbao_cost), 0) as yuanbao_used
+            from purchases
+            where item_name is not null
+            group by item_name
+        ), usages as (
+            select case
+                       when content ~ '^成功批量使用【.+】物品[0-9]+次' then regexp_replace(content, '^成功批量使用【(.+)】物品([0-9]+)次.*$', '\\1')
+                       when content ~ '^成功使用【.+】物品' then regexp_replace(content, '^成功使用【(.+)】物品.*$', '\\1')
+                       when content ~ '^批量打开【.+】[0-9]+次获得' then regexp_replace(content, '^批量打开【(.+)】([0-9]+)次获得.*$', '\\1')
+                       when content ~ '^打开【.+】获得' then regexp_replace(content, '^打开【(.+)】获得.*$', '\\1')
+                       else null
+                   end as item_name,
+                   case
+                       when content ~ '^成功批量使用【.+】物品[0-9]+次' then (regexp_replace(content, '^成功批量使用【(.+)】物品([0-9]+)次.*$', '\\2'))::bigint
+                       when content ~ '^批量打开【.+】[0-9]+次获得' then (regexp_replace(content, '^批量打开【(.+)】([0-9]+)次获得.*$', '\\2'))::bigint
+                       else 1
+                   end as quantity
+            from t_log_right_bottom
+            where content like '成功使用【%%' or content like '成功批量使用【%%' or content like '打开【%%' or content like '批量打开【%%'
+        ), use_summary as (
+            select item_name, count(*) as use_events, coalesce(sum(quantity), 0) as consumed_quantity
+            from usages
+            where item_name is not null
+            group by item_name
+        ), combined as (
+            select coalesce(p.item_name, u.item_name) as item_name,
+                   coalesce(p.purchased_quantity, 0) as purchased_quantity,
+                   coalesce(u.consumed_quantity, 0) as consumed_quantity,
+                   coalesce(p.yuanbao_used, 0) as yuanbao_used,
+                   coalesce(p.purchase_events, 0) as purchase_events,
+                   coalesce(u.use_events, 0) as use_events
+            from purchase_summary p
+            full outer join use_summary u on u.item_name = p.item_name
+        )
+        select item_name, purchased_quantity, consumed_quantity, yuanbao_used, purchase_events, use_events
+        from combined
+        order by purchased_quantity desc, consumed_quantity desc, yuanbao_used desc, item_name
+        limit %s offset %s
+    """
+    total, rows = paged_query(conn, count_sql, rows_sql, (), page, page_size)
+    return {
+        "title": "道具统计",
+        "description": "按所有日志聚合商品购买数量、消耗数量和元宝使用数量。",
+        "columns": [
+            {"key": "item_name", "label": "道具"},
+            {"key": "purchased_quantity", "label": "购买数量", "type": "number"},
+            {"key": "consumed_quantity", "label": "消耗数量", "type": "number"},
+            {"key": "yuanbao_used", "label": "元宝使用数量", "type": "number"},
+            {"key": "purchase_events", "label": "购买日志", "type": "number"},
+            {"key": "use_events", "label": "消耗日志", "type": "number"},
+        ],
+        "total": total,
+        "rows": rows,
+    }
+
+
+def load_hospital_value_table(conn, column, label, page, page_size):
+    count_sql = "select count(*) as total from t_hospitals"
+    rows_sql = f"""
+        select id as hospital_id, coalesce(hospital_name, '') as hospital_name,
+               coalesce(director_name, '') as director_name, coalesce({column}, 0) as value,
+               to_char((update_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as update_time
+        from t_hospitals
+        order by coalesce({column}, 0) desc, update_time desc, id desc
+        limit %s offset %s
+    """
+    total, rows = paged_query(conn, count_sql, rows_sql, (ZONE_ID,), page, page_size)
+    return {
+        "title": f"{label}排行",
+        "description": f"按医院当前{label}从多到少排序。",
+        "columns": [
+            {"key": "hospital_id", "label": "医院 ID", "type": "number"},
+            {"key": "hospital_name", "label": "医院名"},
+            {"key": "director_name", "label": "院长名"},
+            {"key": "value", "label": label, "type": "number"},
+            {"key": "update_time", "label": "更新时间"},
+        ],
+        "total": total,
+        "rows": rows,
+    }
+
+
+def load_guild_table(conn, page, page_size):
+    count_sql = "select count(*) as total from t_guild"
+    rows_sql = """
+        select g.id as guild_id, coalesce(g.name, '') as guild_name, coalesce(g.status, '') as status,
+               coalesce(g.level, 0) as level, coalesce(g.build_points, 0) as build_points,
+               coalesce(g.ingot_pool, 0) as ingot_pool, count(m.id) as members,
+               coalesce(sum(m.donation_total), 0) as donation_total,
+               to_char((g.create_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as create_time
+        from t_guild g
+        left join t_guild_member m on m.guild_id = g.id
+        group by g.id, g.name, g.status, g.level, g.build_points, g.ingot_pool, g.create_time
+        order by coalesce(g.level, 0) desc, coalesce(g.build_points, 0) desc, coalesce(g.ingot_pool, 0) desc, g.id desc
+        limit %s offset %s
+    """
+    total, rows = paged_query(conn, count_sql, rows_sql, (ZONE_ID,), page, page_size)
+    return {
+        "title": "公会统计",
+        "description": "按等级、建设值、元宝池从高到低排序。",
+        "columns": [
+            {"key": "guild_id", "label": "公会 ID", "type": "number"},
+            {"key": "guild_name", "label": "公会名"},
+            {"key": "status", "label": "状态"},
+            {"key": "level", "label": "等级", "type": "number"},
+            {"key": "build_points", "label": "建设值", "type": "number"},
+            {"key": "ingot_pool", "label": "元宝池", "type": "number"},
+            {"key": "members", "label": "成员数", "type": "number"},
+            {"key": "donation_total", "label": "累计贡献", "type": "number"},
+            {"key": "create_time", "label": "创建时间"},
+        ],
+        "total": total,
+        "rows": rows,
+    }
+
+
+def load_registrant_table(conn, page, page_size):
+    count_sql = "select count(*) as total from t_directors"
+    rows_sql = """
+        select d.id as director_id, coalesce(d.username, '') as username, coalesce(d.auth_provider, '') as auth_provider,
+               to_char((d.create_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as create_time,
+               count(h.id) as hospital_count,
+               coalesce(max(h.hospital_name), '') as hospital_name,
+               coalesce(max(h.director_name), '') as director_name
+        from t_directors d
+        left join t_hospitals h on h.director_id = d.id
+        group by d.id, d.username, d.auth_provider, d.create_time
+        order by d.create_time desc, d.id desc
+        limit %s offset %s
+    """
+    total, rows = paged_query(conn, count_sql, rows_sql, (ZONE_ID,), page, page_size)
+    return {
+        "title": "注册者",
+        "description": "按账号注册时间从新到旧排序。",
+        "columns": [
+            {"key": "director_id", "label": "账号 ID", "type": "number"},
+            {"key": "username", "label": "用户名"},
+            {"key": "auth_provider", "label": "来源"},
+            {"key": "create_time", "label": "注册时间"},
+            {"key": "hospital_count", "label": "医院数", "type": "number"},
+            {"key": "hospital_name", "label": "医院名"},
+            {"key": "director_name", "label": "院长名"},
+        ],
+        "total": total,
+        "rows": rows,
+    }
+
+
 def record_snapshot(stats):
     ensure_snapshot_table()
     summary = stats["summary"]
@@ -576,7 +797,6 @@ def load_unavailable_stats(error: Exception):
         "dailyActive": [],
         "dailyRegistrations": [],
         "dailySkin": [],
-        "purchaseInsights": empty_purchase_insights(),
         "itemPurchases": [],
         "itemUsages": [],
     }
@@ -607,6 +827,12 @@ def stats_api():
     except Exception as exc:
         app.logger.warning("stats unavailable: %s", exc)
         return jsonify(load_unavailable_stats(exc))
+
+
+@app.get("/api/stat-table")
+def stat_table_api():
+    tab, page, page_size = parse_page_args()
+    return jsonify(load_stat_table(tab, page, page_size))
 
 
 @app.get("/api/item-activity-details")

@@ -79,6 +79,19 @@
         .tab-btn.active { border-color: rgba(72, 213, 151, 0.68); background: rgba(72, 213, 151, 0.18); }
         .purchase-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 16px; align-items: start; }
         .purchase-grid > div { min-width: 0; }
+        .stat-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+        .stat-panel-title { min-width: 0; }
+        .stat-panel-title h2 { margin-bottom: 6px; }
+        .stat-description { color: var(--muted); font-size: 12px; line-height: 1.5; }
+        .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+        .pager-actions { display: flex; align-items: center; gap: 8px; }
+        select {
+            border: 1px solid rgba(151, 178, 214, 0.32);
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.06);
+            padding: 8px 10px;
+            border-radius: 6px;
+        }
 
         .table-scroll {
             width: 100%;
@@ -171,6 +184,8 @@
             .chart-box canvas { height: 220px !important; max-height: 220px !important; }
             .tabs { margin-bottom: 12px; padding-bottom: 2px; }
             .tab-btn { min-width: 64px; }
+            .stat-panel-head { flex-direction: column; }
+            .pager { align-items: flex-start; flex-direction: column; }
             th, td { padding: 9px 8px; font-size: 12px; }
             .note { margin-top: 10px; font-size: 11px; }
             .modal-backdrop { align-items: flex-start; justify-content: center; padding: 12px; }
@@ -207,8 +222,6 @@
         <div class="card"><div class="label">今日注册账号</div><div class="value" id="registrationsToday">-</div><div class="hint">按账号创建时间统计</div></div>
         <div class="card"><div class="label">今日 Stripe 收入</div><div class="value" id="stripeRechargeToday">-</div><div class="hint" id="stripeRechargeHint">-</div></div>
         <div class="card"><div class="label">今日 Steam 收入</div><div class="value" id="steamRechargeToday">-</div><div class="hint" id="steamRechargeHint">-</div></div>
-        <div class="card"><div class="label">新皮肤拥有账号</div><div class="value" id="skinOwners">-</div><div class="hint" id="skinOwnerHint">-</div></div>
-        <div class="card"><div class="label">绿茵组合双双装备账号</div><div class="value" id="skinEquipped">-</div><div class="hint">当前荣耀绿茵，且已启用绿茵盛典</div></div>
     </section>
 
     <section class="grid">
@@ -227,27 +240,40 @@
             <div class="table-scroll"><table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table></div>
         </div>
         <div class="panel wide">
-            <h2>新购统计</h2>
-            <div class="tabs" role="tablist" aria-label="新购统计分类">
-                <button class="tab-btn active" type="button" data-purchase-tab="item">道具</button>
-                <button class="tab-btn" type="button" data-purchase-tab="background">背景</button>
-                <button class="tab-btn" type="button" data-purchase-tab="skin">皮肤</button>
-            </div>
-            <div class="purchase-grid">
-                <div>
-                    <div class="table-scroll"><table>
-                        <thead><tr><th>Top 10</th><th>购买次数</th><th>购买医院</th><th>数量</th><th>元宝</th></tr></thead>
-                        <tbody id="purchaseTopRows"></tbody>
-                    </table></div>
+            <div class="stat-panel-head">
+                <div class="stat-panel-title">
+                    <h2 id="statTableTitle">统计明细</h2>
+                    <div class="stat-description" id="statTableDescription">读取中...</div>
                 </div>
-                <div>
-                    <div class="table-scroll"><table>
-                        <thead><tr><th>时间</th><th>购买内容</th><th>医院 ID</th><th>医院名</th><th>院长名</th><th>数量</th><th>元宝</th></tr></thead>
-                        <tbody id="purchaseBuyerRows"></tbody>
-                    </table></div>
+                <label class="toolbar">每页
+                    <select id="statPageSize">
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </label>
+            </div>
+            <div class="tabs" role="tablist" aria-label="统计明细分类">
+                <button class="tab-btn active" type="button" data-stat-tab="items">道具</button>
+                <button class="tab-btn" type="button" data-stat-tab="money">金钱</button>
+                <button class="tab-btn" type="button" data-stat-tab="yuanbao">元宝</button>
+                <button class="tab-btn" type="button" data-stat-tab="prestige">声望</button>
+                <button class="tab-btn" type="button" data-stat-tab="guild">公会</button>
+                <button class="tab-btn" type="button" data-stat-tab="registrants">注册者</button>
+            </div>
+            <div class="table-scroll">
+                <table id="statTable">
+                    <thead id="statTableHead"></thead>
+                    <tbody id="statTableRows"><tr><td>读取中...</td></tr></tbody>
+                </table>
+            </div>
+            <div class="pager">
+                <div id="statPagerInfo">-</div>
+                <div class="pager-actions">
+                    <button id="statPrevPage" type="button">上一页</button>
+                    <button id="statNextPage" type="button">下一页</button>
                 </div>
             </div>
-            <div class="note">每个页签展示近14日购买 Top 10 和最近20个购买医院。</div>
         </div>
     </section>
 </main>
@@ -270,16 +296,32 @@
 <script>
     const charts = {};
     const renderState = {};
-    let activePurchaseTab = 'item';
-    let latestPurchaseInsights = {};
+    const statTableState = {tab: 'items', page: 1, pageSize: 20, total: 0};
 
     document.getElementById('refreshBtn').addEventListener('click', loadStats);
     document.getElementById('itemModalClose').addEventListener('click', closeItemModal);
-    document.querySelectorAll('[data-purchase-tab]').forEach(button => {
+    document.querySelectorAll('[data-stat-tab]').forEach(button => {
         button.addEventListener('click', () => {
-            activePurchaseTab = button.dataset.purchaseTab;
-            renderPurchaseTabs(latestPurchaseInsights);
+            statTableState.tab = button.dataset.statTab;
+            statTableState.page = 1;
+            loadStatTable();
         });
+    });
+    document.getElementById('statPageSize').addEventListener('change', event => {
+        statTableState.pageSize = Number(event.target.value) || 20;
+        statTableState.page = 1;
+        loadStatTable();
+    });
+    document.getElementById('statPrevPage').addEventListener('click', () => {
+        if (statTableState.page <= 1) return;
+        statTableState.page -= 1;
+        loadStatTable();
+    });
+    document.getElementById('statNextPage').addEventListener('click', () => {
+        const maxPage = Math.max(Math.ceil(statTableState.total / statTableState.pageSize), 1);
+        if (statTableState.page >= maxPage) return;
+        statTableState.page += 1;
+        loadStatTable();
     });
     document.getElementById('itemModal').addEventListener('click', event => {
         if (event.target.id === 'itemModal') closeItemModal();
@@ -289,6 +331,7 @@
     });
     window.addEventListener('load', () => {
         loadStats();
+        loadStatTable();
         setInterval(loadStats, 60000);
     });
 
@@ -310,8 +353,7 @@
         const overallSignature = stableStringify({
             summary: data.summary || {}, note: data.note || '', zoneId: data.zoneId || '',
             onlineBuckets: data.onlineBuckets || [], dailyRecharge: data.dailyRecharge || [],
-            dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [],
-            dailySkin: data.dailySkin || [], purchaseInsights: data.purchaseInsights || {},
+            dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [], dailySkin: data.dailySkin || [],
             itemPurchases: data.itemPurchases || [], itemUsages: data.itemUsages || []
         });
         if (renderState.overallSignature === overallSignature) return;
@@ -326,9 +368,6 @@
         setText('stripeRechargeHint', `${formatNumber(s.stripe_recharge_orders_today)} 笔，${formatNumber(s.stripe_recharge_yuanbao_today)} 元宝`);
         setText('steamRechargeToday', `¥${formatMoney(s.steam_recharge_cny_today)}`);
         setText('steamRechargeHint', `${formatNumber(s.steam_recharge_orders_today)} 笔，${formatNumber(s.steam_recharge_yuanbao_today)} 元宝`);
-        setText('skinOwners', formatNumber(s.skin_owner_accounts));
-        setText('skinOwnerHint', `免费 ${formatNumber(s.skin_free_accounts)}，购买日志 ${formatNumber(s.skin_purchase_log_accounts)}，扣款确认 ${formatNumber(s.skin_paid_confirmed_accounts)}`);
-        setText('skinEquipped', formatNumber(s.green_combo_equipped_accounts));
         setText('onlineNote', data.note || '');
         setText('skinNote', `上线以来按小时统计。当前拥有医院 ${formatNumber(s.skin_owner_hospitals)}，账号 ${formatNumber(s.skin_owner_accounts)}。`);
 
@@ -338,8 +377,6 @@
         renderSkinChart(data.dailySkin || []);
         renderItemPurchaseChart(data.itemPurchases || []);
         renderItemUseChart(data.itemUsages || []);
-        latestPurchaseInsights = data.purchaseInsights || {};
-        renderPurchaseTabs(latestPurchaseInsights);
         renderItemActivityRows('itemPurchaseRows', data.itemPurchases || [], true);
         renderItemActivityRows('itemUseRows', data.itemUsages || [], false);
     }
@@ -394,43 +431,60 @@
         }, {indexAxis: 'y'});
     }
 
-    function renderPurchaseTabs(insights) {
-        document.querySelectorAll('[data-purchase-tab]').forEach(button => {
-            button.classList.toggle('active', button.dataset.purchaseTab === activePurchaseTab);
+    async function loadStatTable() {
+        document.querySelectorAll('[data-stat-tab]').forEach(button => {
+            button.classList.toggle('active', button.dataset.statTab === statTableState.tab);
         });
-        const current = insights[activePurchaseTab] || {top: [], buyers: []};
-        renderPurchaseTopRows(current.top || []);
-        renderPurchaseBuyerRows(current.buyers || []);
+        const tbody = document.getElementById('statTableRows');
+        tbody.innerHTML = '<tr><td>读取中...</td></tr>';
+        try {
+            const params = new URLSearchParams({
+                tab: statTableState.tab,
+                page: String(statTableState.page),
+                pageSize: String(statTableState.pageSize)
+            });
+            const response = await fetch(`api/stat-table?${params}`, {cache: 'no-store'});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            renderStatTable(await response.json());
+        } catch (e) {
+            document.getElementById('statTableHead').innerHTML = '';
+            tbody.innerHTML = `<tr><td>读取失败：${escapeHtml(e.message || e)}</td></tr>`;
+            setText('statPagerInfo', '-');
+        }
     }
 
-    function renderPurchaseTopRows(rows) {
-        if (!markSectionChanged('purchaseTopRows', {tab: activePurchaseTab, rows})) return;
-        const tbody = document.getElementById('purchaseTopRows');
+    function renderStatTable(data) {
+        const columns = data.columns || [];
+        const rows = data.rows || [];
+        statTableState.page = Number(data.page || statTableState.page);
+        statTableState.pageSize = Number(data.pageSize || statTableState.pageSize);
+        statTableState.total = Number(data.total || 0);
+        setText('statTableTitle', data.title || '统计明细');
+        setText('statTableDescription', data.description || '');
+        document.getElementById('statPageSize').value = String(statTableState.pageSize);
+        const thead = document.getElementById('statTableHead');
+        thead.innerHTML = `<tr>${columns.map(column => `<th>${escapeHtml(column.label || column.key)}</th>`).join('')}</tr>`;
+        const tbody = document.getElementById('statTableRows');
         tbody.innerHTML = '';
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="5">没有购买记录</td></tr>';
-            return;
+            tbody.innerHTML = `<tr><td colspan="${Math.max(columns.length, 1)}">没有数据</td></tr>`;
+        } else {
+            rows.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = columns.map(column => {
+                    const value = row[column.key];
+                    const text = column.type === 'number' ? formatNumber(value) : escapeHtml(value || '-');
+                    return `<td>${text}</td>`;
+                }).join('');
+                tbody.appendChild(tr);
+            });
         }
-        rows.forEach(row => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${escapeHtml(row.item_name || '-')}</td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.quantity)}</td><td>${formatNumber(row.yuanbao)}</td>`;
-            tbody.appendChild(tr);
-        });
-    }
-
-    function renderPurchaseBuyerRows(rows) {
-        if (!markSectionChanged('purchaseBuyerRows', {tab: activePurchaseTab, rows})) return;
-        const tbody = document.getElementById('purchaseBuyerRows');
-        tbody.innerHTML = '';
-        if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="7">没有购买记录</td></tr>';
-            return;
-        }
-        rows.forEach(row => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${escapeHtml(row.purchase_time || '-')}</td><td>${escapeHtml(row.item_name || '-')}</td><td>${row.hospital_id}</td><td>${escapeHtml(row.hospital_name || '-')}</td><td>${escapeHtml(row.director_name || '-')}</td><td>${formatNumber(row.quantity)}</td><td>${formatNumber(row.yuanbao)}</td>`;
-            tbody.appendChild(tr);
-        });
+        const maxPage = Math.max(Math.ceil(statTableState.total / statTableState.pageSize), 1);
+        const start = statTableState.total === 0 ? 0 : (statTableState.page - 1) * statTableState.pageSize + 1;
+        const end = Math.min(statTableState.page * statTableState.pageSize, statTableState.total);
+        setText('statPagerInfo', `第 ${formatNumber(statTableState.page)} / ${formatNumber(maxPage)} 页，显示 ${formatNumber(start)}-${formatNumber(end)}，共 ${formatNumber(statTableState.total)} 条`);
+        document.getElementById('statPrevPage').disabled = statTableState.page <= 1;
+        document.getElementById('statNextPage').disabled = statTableState.page >= maxPage;
     }
 
     function renderItemActivityRows(id, rows, purchase) {
