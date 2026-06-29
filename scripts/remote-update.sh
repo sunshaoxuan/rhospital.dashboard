@@ -21,10 +21,17 @@ docker load -i "$image_tar"
 
 DASHBOARD_IMAGE="$image_name:$image_tag" docker compose up -d --no-build
 
-sleep 2
 public_port="$(grep '^DASHBOARD_PUBLIC_PORT=' .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\r')"
 public_port="${public_port:-18091}"
-curl -fsS "http://127.0.0.1:${public_port}/healthz" >/dev/null
+for i in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${public_port}/healthz" >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    curl -fsS "http://127.0.0.1:${public_port}/healthz" >/dev/null
+  fi
+  sleep 1
+done
 
 current_image_id="$(docker compose ps -q ops-dashboard | xargs docker inspect --format '{{.Image}}')"
 

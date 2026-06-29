@@ -65,12 +65,12 @@ docker compose down
 
 默认对外端口是 `18091`，容器内部端口是 `8091`。如需更改对外端口，修改 `.env` 中的 `DASHBOARD_PUBLIC_PORT`。
 
-## ccnode 简单发布流程
+## OrangeVPS 简单发布流程
 
 目标访问地址：
 
 ```text
-https://ccnode.briconbric.com/rhdashboard/
+http://178.239.117.99/rhdashboard/
 ```
 
 远端固定目录：
@@ -93,14 +93,14 @@ OPS_DASHBOARD_TIME_ZONE=Asia/Tokyo
 OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS=10
 ```
 
-首次使用 `/rhdashboard/` 子路径访问时，需要在 ccnode 上追加 Nginx location：
+首次使用 `/rhdashboard/` 子路径访问时，需要在 OrangeVPS 的 1Panel OpenResty 上追加 location：
 
 ```bash
 cd /rhdashboard
-sh scripts/configure-ccnode-nginx-rhdashboard.sh
+sh scripts/configure-orangevps-openresty-rhdashboard.sh
 ```
 
-该脚本会先备份 `/etc/nginx/conf.d/xray.conf`，再执行 `nginx -t` 和 `systemctl reload nginx`。
+该脚本会写入 `/opt/1panel/www/conf.d/rhdashboard.conf`，再执行 `docker exec openresty openresty -t` 和 `docker exec openresty openresty -s reload`。
 
 ### 日常发布
 
@@ -130,15 +130,15 @@ sh scripts/configure-ccnode-nginx-rhdashboard.sh
 
 ### 回滚
 
-远端镜像以提交号和 UTC 时间组成标签。需要回滚时，在 ccnode 上指定旧标签启动：
+远端镜像以提交号和 UTC 时间组成标签。需要回滚时，在 OrangeVPS 上指定旧标签启动：
 
 ```bash
 cd /rhdashboard
 DASHBOARD_IMAGE=hospital-ops-dashboard:<OLD_TAG> docker compose up -d --no-build
 ```
 
-如 Nginx 配置需要回滚，使用脚本输出的备份文件覆盖 `/etc/nginx/conf.d/xray.conf`，随后执行：
+如 OpenResty 配置需要回滚，使用脚本输出的备份文件覆盖 `/opt/1panel/www/conf.d/rhdashboard.conf`，随后执行：
 
 ```bash
-nginx -t && systemctl reload nginx
+docker exec openresty openresty -t && docker exec openresty openresty -s reload
 ```
