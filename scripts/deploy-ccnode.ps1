@@ -1,7 +1,7 @@
 param(
     [string]$SshKey = "C:\workspace\Secure\sunsxaws.pem",
     [string]$RemoteUser = "root",
-    [string]$RemoteHost = "178.239.117.99",
+    [string]$RemoteHost = "ccnode.briconbric.com",
     [string]$RemoteAppDir = "/rhdashboard",
     [string]$ImageName = "hospital-ops-dashboard",
     [string]$ImageTag = "",

@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,6 +26,19 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/api/stats", rules)
         self.assertIn("/api/stat-table", rules)
         self.assertIn("/api/item-activity-details", rules)
+
+    def test_release_target_remains_ccnode(self):
+        script = Path("scripts/deploy-ccnode.ps1").read_text(encoding="utf-8")
+        self.assertRegex(script, r'\[string\]\$RemoteHost\s*=\s*"ccnode\.briconbric\.com"')
+        self.assertNotRegex(script, r'\[string\]\$RemoteHost\s*=\s*"178\.239\.117\.99"')
+
+    def test_documented_stats_source_is_orangevps_only(self):
+        readme = Path("README.md").read_text(encoding="utf-8")
+        self.assertIn("https://ccnode.briconbric.com/rhdashboard/", readme)
+        self.assertIn("PROD_DB_URL=postgresql://178.239.117.99:35432/hospital", readme)
+        deploy_section = re.search(r"## ccnode 简单发布流程(?P<body>.*)", readme, re.S)
+        self.assertIsNotNone(deploy_section)
+        self.assertNotIn("http://178.239.117.99/rhdashboard/", deploy_section.group("body"))
 
     def test_merge_snapshot_history_prefers_recent_prod_recharge(self):
         old_data_dir = app_module.DATA_DIR
