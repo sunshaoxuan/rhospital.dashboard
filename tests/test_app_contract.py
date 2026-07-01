@@ -58,6 +58,13 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(row["supply_total"], 150)
         self.assertEqual(row["consume_rate"], 20.0)
 
+    def test_special_clinic_depleted_at_select_tolerates_missing_column(self):
+        sql, params = app_module.special_clinic_depleted_at_select(False)
+
+        self.assertEqual(sql, "'' as depleted_at")
+        self.assertEqual(params, ())
+        self.assertNotIn("c.depleted_at", sql)
+
     def test_dashboard_uses_weekly_cabinet_copy(self):
         client = app.test_client()
         response = client.get("/")

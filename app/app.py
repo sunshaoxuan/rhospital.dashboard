@@ -130,6 +130,31 @@ def query_list(conn, sql, params=()):
         return rows_to_dicts(cur)
 
 
+def column_exists(conn, table_name, column_name):
+    row = query_one(
+        conn,
+        """
+        select exists (
+            select 1
+            from information_schema.columns
+            where table_name = %s
+              and column_name = %s
+        ) as exists
+        """,
+        (table_name, column_name),
+    )
+    return bool(row.get("exists"))
+
+
+def special_clinic_depleted_at_select(has_depleted_at):
+    if has_depleted_at:
+        return (
+            "coalesce(to_char(c.depleted_at at time zone 'UTC' at time zone %s, 'MM-DD HH24:MI'), '') as depleted_at",
+            (SPECIAL_CLINIC_ZONE_ID,),
+        )
+    return "'' as depleted_at", ()
+
+
 def major_amount(value):
     return round(float(value or 0) / 100, 2)
 
@@ -1016,9 +1041,12 @@ def load_special_clinic_ticket_flows(conn):
 
 
 def load_special_clinic_weekly_cabinet(conn):
+    depleted_at_select, depleted_at_params = special_clinic_depleted_at_select(
+        column_exists(conn, "t_special_clinic_cabinet", "depleted_at")
+    )
     rows = query_list(
         conn,
-        """
+        f"""
         with cabinet_recent as (
             select *
             from t_special_clinic_cabinet
@@ -1037,7 +1065,7 @@ def load_special_clinic_weekly_cabinet(conn):
                coalesce(r.diagnosis_count_from_record, 0) as diagnosis_count_from_record,
                coalesce(c.paid_ticket_count, 0) as paid_ticket_count,
                coalesce(c.empty_attempt_count, 0) as empty_attempt_count,
-               coalesce(to_char(c.depleted_at at time zone 'UTC' at time zone %s, 'MM-DD HH24:MI'), '') as depleted_at,
+               {depleted_at_select},
                coalesce(c.critical_admitted_count, 0) as critical_admitted_count,
                coalesce(c.consultation_round, 0) as consultation_round,
                coalesce(c.consultation_heat, 0) as consultation_heat,
@@ -1048,7 +1076,7 @@ def load_special_clinic_weekly_cabinet(conn):
         order by c.clinic_date desc
         limit 8
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, *depleted_at_params),
     )
     for row in rows:
         add_special_clinic_supply_metrics(row)
