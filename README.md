@@ -62,7 +62,7 @@ docker compose down
 - 页面顶部提供站点级页签：`运营总览` 保持原有统计画面，`特需门诊` 展示常见病特需门诊只读分析。
 - 特需门诊页按北京时间统计近14日数据，库存表展示近 8 个周三开诊周期，包含每小时总览、病历等级分布、具体病历分布、道具奖品发放、资源奖品发放、每周库存消耗、医院行为 Top 30、对账异常和风险提示次数。
 - 特需门诊资源奖品来自确诊记录主账字段，声望读取 `prestige_reward`，与 `reward_items` 道具 JSON 分开展示。
-- 特需门诊库存消耗率按周统计，分子使用本周 `total_diagnoses` 合计，分母使用当前可观测周总量 `max(initial_total, 本周total_diagnoses合计 + 最新remaining_total)`，便于后续补仓后继续按总量统计。
+- 特需门诊库存消耗率按周统计，分子使用本周 `total_diagnoses` 合计，分母使用周投放总量 `initial_total`；补仓字段上线后，分母改为 `initial_total + 本周补仓合计` 或服务端正式累计投放字段。
 - 特需门诊统计只读查询 `t_special_clinic_patient_record`、`t_special_clinic_ticket_log`、`t_special_clinic_cabinet`、`t_special_clinic_player_state`、`t_backpack`、`t_log_yuanbao` 和 `t_log_right_bottom`。
 - `.env` 和本地 SQLite 文件不应提交到任何仓库。
 

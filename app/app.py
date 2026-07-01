@@ -894,9 +894,8 @@ def load_special_clinic_summary(conn):
 
 def add_special_clinic_supply_metrics(row):
     initial_total = int(row.get("initial_total") or 0)
-    remaining_total = int(row.get("remaining_total") or 0)
     total_diagnoses = int(row.get("total_diagnoses") or 0)
-    supply_total = max(initial_total, total_diagnoses + remaining_total)
+    supply_total = max(initial_total, total_diagnoses)
     row["supply_total"] = supply_total
     row["consume_rate"] = round(total_diagnoses * 100 / supply_total, 2) if supply_total else 0
     return row

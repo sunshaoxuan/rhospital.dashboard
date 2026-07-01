@@ -48,15 +48,15 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('id="clinicResourceRows"', html)
         self.assertIn("'prestige_reward'", html)
 
-    def test_special_clinic_supply_metrics_use_weekly_total(self):
+    def test_special_clinic_supply_metrics_use_weekly_consumption_numerator(self):
         row = app_module.add_special_clinic_supply_metrics({
             "initial_total": 100,
             "total_diagnoses": 30,
             "remaining_total": 120,
         })
 
-        self.assertEqual(row["supply_total"], 150)
-        self.assertEqual(row["consume_rate"], 20.0)
+        self.assertEqual(row["supply_total"], 100)
+        self.assertEqual(row["consume_rate"], 30.0)
 
         weekly_row = app_module.add_special_clinic_supply_metrics({
             "initial_total": 6000,
@@ -64,8 +64,8 @@ class AppContractTest(unittest.TestCase):
             "remaining_total": 5922,
         })
 
-        self.assertEqual(weekly_row["supply_total"], 9626)
-        self.assertEqual(weekly_row["consume_rate"], 38.48)
+        self.assertEqual(weekly_row["supply_total"], 6000)
+        self.assertEqual(weekly_row["consume_rate"], 61.73)
 
     def test_special_clinic_depleted_at_select_tolerates_missing_column(self):
         sql, params = app_module.special_clinic_depleted_at_select(False)
