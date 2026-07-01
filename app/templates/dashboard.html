@@ -69,7 +69,7 @@
         .chart-box canvas { display: block; width: 100% !important; height: 260px !important; max-height: 260px !important; }
         .wide { grid-column: 1 / -1; }
         .note { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
-        .tabs { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; scrollbar-width: thin; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: visible; scrollbar-width: thin; }
         .site-tabs { margin: 0 0 16px; }
         .tab-btn {
             flex: 0 0 auto;
@@ -79,7 +79,8 @@
         }
         .tab-btn.active { border-color: rgba(72, 213, 151, 0.68); background: rgba(72, 213, 151, 0.18); }
         .page-section[hidden] { display: none; }
-        .clinic-table table { min-width: 900px; }
+        .clinic-table table { min-width: 0; }
+        .wide-clinic-table table { min-width: 900px; }
         .clinic-summary-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
         .mini-value { font-size: 13px; color: var(--muted); line-height: 1.6; }
         .purchase-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 16px; align-items: start; }
@@ -100,7 +101,8 @@
 
         .table-scroll {
             width: 100%;
-            overflow-x: auto;
+            overflow-x: visible;
+            overflow-y: visible;
             -webkit-overflow-scrolling: touch;
             border-radius: 8px;
             scrollbar-width: thin;
@@ -188,10 +190,13 @@
             .chart-box { height: 220px; max-height: 220px; }
             .chart-box canvas { height: 220px !important; max-height: 220px !important; }
             .tabs { margin-bottom: 12px; padding-bottom: 2px; }
+            .tabs { overflow-x: auto; }
             .tab-btn { min-width: 64px; }
             .stat-panel-head { flex-direction: column; }
             .pager { align-items: flex-start; flex-direction: column; }
             th, td { padding: 9px 8px; font-size: 12px; }
+            .table-scroll { overflow-x: auto; overflow-y: visible; }
+            .wide-clinic-table table { min-width: 900px; }
             .note { margin-top: 10px; font-size: 11px; }
             .modal-backdrop { align-items: flex-start; justify-content: center; padding: 12px; }
             .modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
@@ -296,17 +301,17 @@
             <div class="card"><div class="label">付费票看病</div><div class="value" id="clinicPaidDiagnoses">-</div><div class="hint">使用元宝补诊票确诊</div></div>
             <div class="card"><div class="label">购票元宝成本</div><div class="value" id="clinicIngotCost">-</div><div class="hint" id="clinicTicketHint">-</div></div>
             <div class="card"><div class="label">库存消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
-            <div class="card"><div class="label">异常提示</div><div class="value" id="clinicAlertCount">-</div><div class="hint">近14日提示类风险总数</div></div>
+            <div class="card"><div class="label">风险提示次数</div><div class="value" id="clinicAlertCount">-</div><div class="hint">无票、空柜、结诊、购票上限、未开放包和元宝不足</div></div>
         </section>
 
         <section class="grid">
             <div class="panel"><h2>每小时特需诊断与购票</h2><div class="chart-box"><canvas id="clinicHourlyChart"></canvas></div><div class="note">时间口径使用北京时间小时桶。</div></div>
             <div class="panel"><h2>病历等级分布</h2><div class="chart-box"><canvas id="clinicTierChart"></canvas></div><div class="table-scroll clinic-table"><table><thead><tr><th>等级</th><th>确诊</th><th>医院</th><th>付费票</th></tr></thead><tbody id="clinicTierRows"></tbody></table></div></div>
             <div class="panel"><h2>资源奖品发放，按小时</h2><div class="chart-box"><canvas id="clinicResourceChart"></canvas></div><div class="note">资源奖励来自确诊记录主账。</div></div>
-            <div class="panel"><h2>对账异常</h2><div class="table-scroll clinic-table"><table><thead><tr><th>项目</th><th>主口径</th><th>校验口径</th><th>差异</th></tr></thead><tbody id="clinicAuditRows"></tbody></table></div><div class="table-scroll clinic-table"><table><thead><tr><th>异常提示</th><th>次数</th></tr></thead><tbody id="clinicAlertRows"></tbody></table></div></div>
+            <div class="panel"><h2>对账异常</h2><div class="table-scroll clinic-table"><table><thead><tr><th>项目</th><th>主口径</th><th>校验口径</th><th>差异</th></tr></thead><tbody id="clinicAuditRows"></tbody></table></div><div class="table-scroll clinic-table"><table><thead><tr><th>风险提示类型</th><th>次数</th></tr></thead><tbody id="clinicAlertRows"></tbody></table></div></div>
             <div class="panel wide">
                 <h2>每小时总览</h2>
-                <div class="table-scroll clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>临时患者</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>临时患者</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>奖品发放</h2>
@@ -314,15 +319,15 @@
             </div>
             <div class="panel wide">
                 <h2>具体病历分布</h2>
-                <div class="table-scroll clinic-table"><table><thead><tr><th>病历编码</th><th>病历名</th><th>等级</th><th>确诊</th><th>医院数</th><th>付费票</th></tr></thead><tbody id="clinicPatientRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>病历编码</th><th>病历名</th><th>等级</th><th>确诊</th><th>医院数</th><th>付费票</th></tr></thead><tbody id="clinicPatientRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>每日库存消耗</h2>
-                <div class="table-scroll clinic-table"><table><thead><tr><th>日期</th><th>状态</th><th>初始</th><th>剩余</th><th>消耗率</th><th>柜子已诊</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>日期</th><th>状态</th><th>初始</th><th>剩余</th><th>消耗率</th><th>柜子已诊</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>医院行为 Top 30</h2>
-                <div class="table-scroll clinic-table"><table><thead><tr><th>医院 ID</th><th>医院名</th><th>院长</th><th>日期</th><th>确诊</th><th>付费确诊</th><th>购票张数</th><th>元宝成本</th><th>道具奖励</th><th>临时患者</th><th>首次</th><th>最后</th></tr></thead><tbody id="clinicHospitalRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>医院 ID</th><th>医院名</th><th>院长</th><th>日期</th><th>确诊</th><th>付费确诊</th><th>购票张数</th><th>元宝成本</th><th>道具奖励</th><th>临时患者</th><th>首次</th><th>最后</th></tr></thead><tbody id="clinicHospitalRows"></tbody></table></div>
             </div>
         </section>
     </section>
