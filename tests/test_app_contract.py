@@ -37,6 +37,17 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('data-page-tab="specialClinic"', html)
         self.assertIn('id="specialClinicPage"', html)
 
+    def test_special_clinic_resource_rewards_are_visible(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn("道具奖品发放", html)
+        self.assertIn("资源奖品发放", html)
+        self.assertIn("声望奖励", html)
+        self.assertIn('id="clinicResourceRows"', html)
+        self.assertIn("'prestige_reward'", html)
+
     def test_release_target_remains_ccnode(self):
         script = Path("scripts/deploy-ccnode.ps1").read_text(encoding="utf-8")
         self.assertRegex(script, r'\[string\]\$RemoteHost\s*=\s*"ccnode\.briconbric\.com"')

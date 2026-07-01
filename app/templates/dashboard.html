@@ -80,7 +80,7 @@
         .tab-btn.active { border-color: rgba(72, 213, 151, 0.68); background: rgba(72, 213, 151, 0.18); }
         .page-section[hidden] { display: none; }
         .clinic-table table { min-width: 0; }
-        .wide-clinic-table table { min-width: 900px; }
+        .wide-clinic-table table { min-width: 1160px; }
         .clinic-summary-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
         .mini-value { font-size: 13px; color: var(--muted); line-height: 1.6; }
         .purchase-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 16px; align-items: start; }
@@ -196,7 +196,7 @@
             .pager { align-items: flex-start; flex-direction: column; }
             th, td { padding: 9px 8px; font-size: 12px; }
             .table-scroll { overflow-x: auto; overflow-y: visible; }
-            .wide-clinic-table table { min-width: 900px; }
+            .wide-clinic-table table { min-width: 1160px; }
             .note { margin-top: 10px; font-size: 11px; }
             .modal-backdrop { align-items: flex-start; justify-content: center; padding: 12px; }
             .modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
@@ -311,11 +311,15 @@
             <div class="panel"><h2>对账异常</h2><div class="table-scroll clinic-table"><table><thead><tr><th>项目</th><th>主口径</th><th>校验口径</th><th>差异</th></tr></thead><tbody id="clinicAuditRows"></tbody></table></div><div class="table-scroll clinic-table"><table><thead><tr><th>风险提示类型</th><th>次数</th></tr></thead><tbody id="clinicAlertRows"></tbody></table></div></div>
             <div class="panel wide">
                 <h2>每小时总览</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>临时患者</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>临时患者</th><th>元宝奖</th><th>金钱奖</th><th>声望奖</th><th>荣耀奖</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
             </div>
             <div class="panel wide">
-                <h2>奖品发放</h2>
+                <h2>道具奖品发放</h2>
                 <div class="table-scroll clinic-table"><table><thead><tr><th>道具 ID</th><th>奖品</th><th>发放数量</th><th>记录数</th><th>医院数</th></tr></thead><tbody id="clinicRewardRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>资源奖品发放</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>临时患者</th><th>元宝奖励</th><th>金钱奖励</th><th>声望奖励</th><th>荣耀奖励</th></tr></thead><tbody id="clinicResourceRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>具体病历分布</h2>
@@ -540,8 +544,9 @@
         renderSimpleRows('clinicTierRows', data.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
         renderSimpleRows('clinicAuditRows', audit.checks || [], ['name', 'left', 'right', 'diff'], {diff: value => Number(value || 0) === 0 ? '<span class="pill green">0</span>' : `<span class="pill yellow">${formatNumber(value)}</span>`});
         renderSimpleRows('clinicAlertRows', audit.alerts || [], ['name', 'count']);
-        renderSimpleRows('clinicHourlyRows', data.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'temporary_patients'], {}, 40);
+        renderSimpleRows('clinicHourlyRows', data.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicRewardRows', data.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
+        renderSimpleRows('clinicResourceRows', data.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicPatientRows', data.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
         renderSimpleRows('clinicCabinetRows', data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'remaining_total', 'consume_rate', 'total_diagnoses', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`});
         renderSimpleRows('clinicHospitalRows', data.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
@@ -568,6 +573,7 @@
             datasets: [
                 {label: '临时患者', data: resources.map(row => row.temporary_patients), backgroundColor: 'rgba(84, 167, 255, 0.58)'},
                 {label: '元宝奖励', data: resources.map(row => row.ingot_reward), backgroundColor: 'rgba(255, 209, 102, 0.68)'},
+                {label: '金钱', data: resources.map(row => row.money_reward), backgroundColor: 'rgba(245, 158, 11, 0.48)'},
                 {label: '声望', data: resources.map(row => row.prestige_reward), backgroundColor: 'rgba(72, 213, 151, 0.52)'},
                 {label: '荣耀', data: resources.map(row => row.glory_reward), backgroundColor: 'rgba(255, 107, 134, 0.52)'}
             ]
