@@ -1070,7 +1070,7 @@ def load_special_clinic_weekly_cabinet(conn):
                coalesce(c.consultation_round, 0) as consultation_round,
                coalesce(c.consultation_heat, 0) as consultation_heat,
                coalesce(c.consultation_threshold, 0) as consultation_threshold,
-               coalesce(c.remaining_by_tier::text, '{}') as remaining_by_tier
+               coalesce(c.remaining_by_tier::text, '{{}}') as remaining_by_tier
         from cabinet_recent c
         left join record_weekly r on r.clinic_date = c.clinic_date
         order by c.clinic_date desc
