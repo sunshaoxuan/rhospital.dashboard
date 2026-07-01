@@ -37,16 +37,18 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('data-page-tab="specialClinic"', html)
         self.assertIn('id="specialClinicPage"', html)
 
-    def test_special_clinic_resource_rewards_are_visible(self):
+    def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()
         response = client.get("/")
         html = response.get_data(as_text=True)
 
         self.assertIn("道具奖品发放", html)
-        self.assertIn("资源奖品发放", html)
+        self.assertIn("主账资源发放", html)
+        self.assertIn('id="clinicRewardItemChart"', html)
         self.assertIn("声望奖励", html)
         self.assertIn('id="clinicResourceRows"', html)
         self.assertIn("'prestige_reward'", html)
+        self.assertIn("yAxisID: 'money'", html)
 
     def test_special_clinic_supply_metrics_use_weekly_consumption_numerator(self):
         row = app_module.add_special_clinic_supply_metrics({
