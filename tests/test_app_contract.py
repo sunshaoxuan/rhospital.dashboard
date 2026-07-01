@@ -58,12 +58,28 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(row["supply_total"], 150)
         self.assertEqual(row["consume_rate"], 20.0)
 
+        weekly_row = app_module.add_special_clinic_supply_metrics({
+            "initial_total": 6000,
+            "total_diagnoses": 3704,
+            "remaining_total": 5922,
+        })
+
+        self.assertEqual(weekly_row["supply_total"], 9626)
+        self.assertEqual(weekly_row["consume_rate"], 38.48)
+
     def test_special_clinic_depleted_at_select_tolerates_missing_column(self):
         sql, params = app_module.special_clinic_depleted_at_select(False)
 
         self.assertEqual(sql, "'' as depleted_at")
         self.assertEqual(params, ())
         self.assertNotIn("c.depleted_at", sql)
+
+    def test_special_clinic_weekly_cabinet_query_groups_numerator(self):
+        source = Path("app/app.py").read_text(encoding="utf-8")
+
+        self.assertIn("clinic_week_start", source)
+        self.assertIn("sum(total_diagnoses)", source)
+        self.assertIn("left join record_weekly", source)
 
     def test_dashboard_uses_weekly_cabinet_copy(self):
         client = app.test_client()

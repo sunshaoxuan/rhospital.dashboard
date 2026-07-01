@@ -149,7 +149,7 @@ def column_exists(conn, table_name, column_name):
 def special_clinic_depleted_at_select(has_depleted_at):
     if has_depleted_at:
         return (
-            "coalesce(to_char(c.depleted_at at time zone 'UTC' at time zone %s, 'MM-DD HH24:MI'), '') as depleted_at",
+            "coalesce(to_char(min(c.depleted_at) at time zone 'UTC' at time zone %s, 'MM-DD HH24:MI'), '') as depleted_at",
             (SPECIAL_CLINIC_ZONE_ID,),
         )
     return "'' as depleted_at", ()
@@ -819,10 +819,24 @@ def load_special_clinic_stats_from_prod():
         weekly_cabinet = load_special_clinic_weekly_cabinet(conn)
         hospital_daily = load_special_clinic_hospital_daily(conn)
         audit_checks = load_special_clinic_audit_checks(conn)
+        summary = load_special_clinic_summary(conn)
+        if weekly_cabinet:
+            latest_week = weekly_cabinet[0]
+            summary.update({
+                "latest_clinic_date": latest_week.get("clinic_date", ""),
+                "cabinet_status": latest_week.get("status", ""),
+                "initial_total": latest_week.get("initial_total", 0),
+                "remaining_total": latest_week.get("remaining_total", 0),
+                "total_diagnoses": latest_week.get("total_diagnoses", 0),
+                "empty_attempt_count": latest_week.get("empty_attempt_count", 0),
+                "critical_admitted_count": latest_week.get("critical_admitted_count", 0),
+                "supply_total": latest_week.get("supply_total", 0),
+                "consume_rate": latest_week.get("consume_rate", 0),
+            })
         return {
             "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
             "zoneId": SPECIAL_CLINIC_ZONE_ID,
-            "summary": load_special_clinic_summary(conn),
+            "summary": summary,
             "hourlySummary": hourly_summary,
             "tierDistribution": tier_distribution,
             "patientDistribution": patient_distribution,
@@ -1044,20 +1058,39 @@ def load_special_clinic_weekly_cabinet(conn):
     depleted_at_select, depleted_at_params = special_clinic_depleted_at_select(
         column_exists(conn, "t_special_clinic_cabinet", "depleted_at")
     )
+    cycle_start_expr = "(clinic_date - (((extract(dow from clinic_date)::int + 4) % 7) * interval '1 day'))::date"
     rows = query_list(
         conn,
         f"""
         with cabinet_recent as (
-            select *
+            select *,
+                   {cycle_start_expr} as clinic_week_start
             from t_special_clinic_cabinet
             where clinic_date >= ((now() at time zone %s)::date - 55)
+        ), cabinet_weekly as (
+            select clinic_week_start,
+                   (array_agg(status::text order by clinic_date desc, id desc))[1] as status,
+                   coalesce((array_agg(initial_total order by clinic_date asc, id asc))[1], 0) as initial_total,
+                   coalesce((array_agg(remaining_total order by clinic_date desc, id desc))[1], 0) as remaining_total,
+                   coalesce(sum(total_diagnoses), 0) as total_diagnoses,
+                   coalesce(sum(paid_ticket_count), 0) as paid_ticket_count,
+                   coalesce(sum(empty_attempt_count), 0) as empty_attempt_count,
+                   {depleted_at_select},
+                   coalesce(sum(critical_admitted_count), 0) as critical_admitted_count,
+                   coalesce((array_agg(consultation_round order by clinic_date desc, id desc))[1], 0) as consultation_round,
+                   coalesce((array_agg(consultation_heat order by clinic_date desc, id desc))[1], 0) as consultation_heat,
+                   coalesce((array_agg(consultation_threshold order by clinic_date desc, id desc))[1], 0) as consultation_threshold,
+                   coalesce((array_agg(remaining_by_tier::text order by clinic_date desc, id desc))[1], '{{}}') as remaining_by_tier
+            from cabinet_recent c
+            group by clinic_week_start
         ), record_weekly as (
-            select clinic_date, count(*) as diagnosis_count_from_record
+            select {cycle_start_expr} as clinic_week_start,
+                   count(*) as diagnosis_count_from_record
             from t_special_clinic_patient_record
             where clinic_date >= ((now() at time zone %s)::date - 55)
-            group by clinic_date
+            group by clinic_week_start
         )
-        select c.clinic_date::text as clinic_date,
+        select c.clinic_week_start::text as clinic_date,
                coalesce(c.status, '') as status,
                coalesce(c.initial_total, 0) as initial_total,
                coalesce(c.remaining_total, 0) as remaining_total,
@@ -1065,18 +1098,18 @@ def load_special_clinic_weekly_cabinet(conn):
                coalesce(r.diagnosis_count_from_record, 0) as diagnosis_count_from_record,
                coalesce(c.paid_ticket_count, 0) as paid_ticket_count,
                coalesce(c.empty_attempt_count, 0) as empty_attempt_count,
-               {depleted_at_select},
+               coalesce(c.depleted_at, '') as depleted_at,
                coalesce(c.critical_admitted_count, 0) as critical_admitted_count,
                coalesce(c.consultation_round, 0) as consultation_round,
                coalesce(c.consultation_heat, 0) as consultation_heat,
                coalesce(c.consultation_threshold, 0) as consultation_threshold,
-               coalesce(c.remaining_by_tier::text, '{{}}') as remaining_by_tier
-        from cabinet_recent c
-        left join record_weekly r on r.clinic_date = c.clinic_date
-        order by c.clinic_date desc
+               coalesce(c.remaining_by_tier, '{{}}') as remaining_by_tier
+        from cabinet_weekly c
+        left join record_weekly r on r.clinic_week_start = c.clinic_week_start
+        order by c.clinic_week_start desc
         limit 8
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, *depleted_at_params),
+        (SPECIAL_CLINIC_ZONE_ID, *depleted_at_params, SPECIAL_CLINIC_ZONE_ID),
     )
     for row in rows:
         add_special_clinic_supply_metrics(row)
