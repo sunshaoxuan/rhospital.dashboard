@@ -300,7 +300,7 @@
             <div class="card"><div class="label">参与医院</div><div class="value" id="clinicHospitals">-</div><div class="hint">发生确诊的医院数</div></div>
             <div class="card"><div class="label">付费票看病</div><div class="value" id="clinicPaidDiagnoses">-</div><div class="hint">使用元宝补诊票确诊</div></div>
             <div class="card"><div class="label">购票元宝成本</div><div class="value" id="clinicIngotCost">-</div><div class="hint" id="clinicTicketHint">-</div></div>
-            <div class="card"><div class="label">库存消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
+            <div class="card"><div class="label">周库存消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
             <div class="card"><div class="label">风险提示次数</div><div class="value" id="clinicAlertCount">-</div><div class="hint">无票、空柜、结诊、购票上限、未开放包和元宝不足</div></div>
         </section>
 
@@ -326,8 +326,8 @@
                 <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>病历编码</th><th>病历名</th><th>等级</th><th>确诊</th><th>医院数</th><th>付费票</th></tr></thead><tbody id="clinicPatientRows"></tbody></table></div>
             </div>
             <div class="panel wide">
-                <h2>每日库存消耗</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>日期</th><th>状态</th><th>初始</th><th>剩余</th><th>消耗率</th><th>柜子已诊</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
+                <h2>每周库存消耗</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>剩余</th><th>消耗率</th><th>柜子已诊</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>医院行为 Top 30</h2>
@@ -538,7 +538,7 @@
         setText('clinicIngotCost', formatNumber(s.ingot_cost));
         setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
         setText('clinicConsumeRate', `${formatMoney(s.consume_rate)}%`);
-        setText('clinicCabinetHint', `${s.cabinet_status || '-'}，剩余 ${formatNumber(s.remaining_total)} / 初始 ${formatNumber(s.initial_total)}`);
+        setText('clinicCabinetHint', `${s.cabinet_status || '-'}，剩余 ${formatNumber(s.remaining_total)} / 周总量 ${formatNumber(s.supply_total)}`);
         setText('clinicAlertCount', formatNumber(alertTotal));
         renderSpecialClinicCharts(data);
         renderSimpleRows('clinicTierRows', data.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
@@ -548,7 +548,7 @@
         renderSimpleRows('clinicRewardRows', data.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
         renderSimpleRows('clinicResourceRows', data.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicPatientRows', data.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
-        renderSimpleRows('clinicCabinetRows', data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'remaining_total', 'consume_rate', 'total_diagnoses', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`});
+        renderSimpleRows('clinicCabinetRows', data.weeklyCabinet || data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'remaining_total', 'consume_rate', 'total_diagnoses', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`});
         renderSimpleRows('clinicHospitalRows', data.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
     }
 

@@ -791,7 +791,7 @@ def load_special_clinic_stats_from_prod():
         reward_items = load_special_clinic_reward_items(conn)
         resource_rewards = load_special_clinic_resource_rewards(conn)
         ticket_flows = load_special_clinic_ticket_flows(conn)
-        daily_cabinet = load_special_clinic_daily_cabinet(conn)
+        weekly_cabinet = load_special_clinic_weekly_cabinet(conn)
         hospital_daily = load_special_clinic_hospital_daily(conn)
         audit_checks = load_special_clinic_audit_checks(conn)
         return {
@@ -804,7 +804,8 @@ def load_special_clinic_stats_from_prod():
             "rewardItems": reward_items,
             "resourceRewards": resource_rewards,
             "ticketFlows": ticket_flows,
-            "dailyCabinet": daily_cabinet,
+            "weeklyCabinet": weekly_cabinet,
+            "dailyCabinet": weekly_cabinet,
             "hospitalDaily": hospital_daily,
             "auditChecks": audit_checks,
         }
@@ -849,9 +850,16 @@ def load_special_clinic_summary(conn):
         """,
         (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
     )
+    return add_special_clinic_supply_metrics(row)
+
+
+def add_special_clinic_supply_metrics(row):
     initial_total = int(row.get("initial_total") or 0)
     remaining_total = int(row.get("remaining_total") or 0)
-    row["consume_rate"] = round((initial_total - remaining_total) * 100 / initial_total, 2) if initial_total else 0
+    total_diagnoses = int(row.get("total_diagnoses") or 0)
+    supply_total = max(initial_total, total_diagnoses + remaining_total)
+    row["supply_total"] = supply_total
+    row["consume_rate"] = round(total_diagnoses * 100 / supply_total, 2) if supply_total else 0
     return row
 
 
@@ -1007,13 +1015,18 @@ def load_special_clinic_ticket_flows(conn):
     )
 
 
-def load_special_clinic_daily_cabinet(conn):
+def load_special_clinic_weekly_cabinet(conn):
     rows = query_list(
         conn,
         """
-        with record_daily as (
+        with cabinet_recent as (
+            select *
+            from t_special_clinic_cabinet
+            where clinic_date >= ((now() at time zone %s)::date - 55)
+        ), record_weekly as (
             select clinic_date, count(*) as diagnosis_count_from_record
             from t_special_clinic_patient_record
+            where clinic_date >= ((now() at time zone %s)::date - 55)
             group by clinic_date
         )
         select c.clinic_date::text as clinic_date,
@@ -1024,21 +1037,21 @@ def load_special_clinic_daily_cabinet(conn):
                coalesce(r.diagnosis_count_from_record, 0) as diagnosis_count_from_record,
                coalesce(c.paid_ticket_count, 0) as paid_ticket_count,
                coalesce(c.empty_attempt_count, 0) as empty_attempt_count,
+               coalesce(to_char(c.depleted_at at time zone 'UTC' at time zone %s, 'MM-DD HH24:MI'), '') as depleted_at,
                coalesce(c.critical_admitted_count, 0) as critical_admitted_count,
                coalesce(c.consultation_round, 0) as consultation_round,
                coalesce(c.consultation_heat, 0) as consultation_heat,
                coalesce(c.consultation_threshold, 0) as consultation_threshold,
                coalesce(c.remaining_by_tier::text, '{}') as remaining_by_tier
-        from t_special_clinic_cabinet c
-        left join record_daily r on r.clinic_date = c.clinic_date
+        from cabinet_recent c
+        left join record_weekly r on r.clinic_date = c.clinic_date
         order by c.clinic_date desc
-        limit 14
+        limit 8
         """,
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
     )
     for row in rows:
-        initial_total = int(row.get("initial_total") or 0)
-        remaining_total = int(row.get("remaining_total") or 0)
-        row["consume_rate"] = round((initial_total - remaining_total) * 100 / initial_total, 2) if initial_total else 0
+        add_special_clinic_supply_metrics(row)
     return rows
 
 
@@ -1225,6 +1238,7 @@ def load_unavailable_special_clinic_stats(error: Exception):
         "rewardItems": [],
         "resourceRewards": [],
         "ticketFlows": [],
+        "weeklyCabinet": [],
         "dailyCabinet": [],
         "hospitalDaily": [],
         "auditChecks": {"checks": [], "alerts": []},

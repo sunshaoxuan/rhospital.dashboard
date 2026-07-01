@@ -48,6 +48,25 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('id="clinicResourceRows"', html)
         self.assertIn("'prestige_reward'", html)
 
+    def test_special_clinic_supply_metrics_use_weekly_total(self):
+        row = app_module.add_special_clinic_supply_metrics({
+            "initial_total": 100,
+            "total_diagnoses": 30,
+            "remaining_total": 120,
+        })
+
+        self.assertEqual(row["supply_total"], 150)
+        self.assertEqual(row["consume_rate"], 20.0)
+
+    def test_dashboard_uses_weekly_cabinet_copy(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn("每周库存消耗", html)
+        self.assertIn("周总量", html)
+        self.assertIn("weeklyCabinet", html)
+
     def test_release_target_remains_ccnode(self):
         script = Path("scripts/deploy-ccnode.ps1").read_text(encoding="utf-8")
         self.assertRegex(script, r'\[string\]\$RemoteHost\s*=\s*"ccnode\.briconbric\.com"')
