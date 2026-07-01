@@ -1058,7 +1058,7 @@ def load_special_clinic_weekly_cabinet(conn):
     depleted_at_select, depleted_at_params = special_clinic_depleted_at_select(
         column_exists(conn, "t_special_clinic_cabinet", "depleted_at")
     )
-    cycle_start_expr = "(clinic_date - (((extract(dow from clinic_date)::int + 4) % 7) * interval '1 day'))::date"
+    cycle_start_expr = "(clinic_date - (((extract(dow from clinic_date)::int + 4) %% 7) * interval '1 day'))::date"
     rows = query_list(
         conn,
         f"""
