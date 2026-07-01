@@ -24,8 +24,18 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/", rules)
         self.assertIn("/healthz", rules)
         self.assertIn("/api/stats", rules)
+        self.assertIn("/api/special-clinic-stats", rules)
         self.assertIn("/api/stat-table", rules)
         self.assertIn("/api/item-activity-details", rules)
+
+    def test_dashboard_has_site_level_tabs(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn('data-page-tab="overall"', html)
+        self.assertIn('data-page-tab="specialClinic"', html)
+        self.assertIn('id="specialClinicPage"', html)
 
     def test_release_target_remains_ccnode(self):
         script = Path("scripts/deploy-ccnode.ps1").read_text(encoding="utf-8")

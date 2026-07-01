@@ -70,6 +70,7 @@
         .wide { grid-column: 1 / -1; }
         .note { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
         .tabs { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; scrollbar-width: thin; }
+        .site-tabs { margin: 0 0 16px; }
         .tab-btn {
             flex: 0 0 auto;
             border-color: rgba(151, 178, 214, 0.32);
@@ -77,6 +78,10 @@
             min-width: 72px;
         }
         .tab-btn.active { border-color: rgba(72, 213, 151, 0.68); background: rgba(72, 213, 151, 0.18); }
+        .page-section[hidden] { display: none; }
+        .clinic-table table { min-width: 900px; }
+        .clinic-summary-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+        .mini-value { font-size: 13px; color: var(--muted); line-height: 1.6; }
         .purchase-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 16px; align-items: start; }
         .purchase-grid > div { min-width: 0; }
         .stat-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
@@ -214,67 +219,112 @@
         </div>
     </div>
 
+    <div class="tabs site-tabs" role="tablist" aria-label="看板页面">
+        <button class="tab-btn active" type="button" data-page-tab="overall">运营总览</button>
+        <button class="tab-btn" type="button" data-page-tab="specialClinic">特需门诊</button>
+    </div>
+
     <div id="error" class="error"></div>
 
-    <section class="cards">
-        <div class="card"><div class="label">10分钟在线账号</div><div class="value" id="onlineNow">-</div><div class="hint">按最后心跳小于等于10分钟统计</div></div>
-        <div class="card"><div class="label">今日日活账号</div><div class="value" id="activeToday">-</div><div class="hint">按进入游戏日志落在今天统计</div></div>
-        <div class="card"><div class="label">今日注册账号</div><div class="value" id="registrationsToday">-</div><div class="hint">按账号创建时间统计</div></div>
-        <div class="card"><div class="label">今日 Stripe 收入</div><div class="value" id="stripeRechargeToday">-</div><div class="hint" id="stripeRechargeHint">-</div></div>
-        <div class="card"><div class="label">今日 Steam 收入</div><div class="value" id="steamRechargeToday">-</div><div class="hint" id="steamRechargeHint">-</div></div>
+    <section id="overallPage" class="page-section">
+        <section class="cards">
+            <div class="card"><div class="label">10分钟在线账号</div><div class="value" id="onlineNow">-</div><div class="hint">按最后心跳小于等于10分钟统计</div></div>
+            <div class="card"><div class="label">今日日活账号</div><div class="value" id="activeToday">-</div><div class="hint">按进入游戏日志落在今天统计</div></div>
+            <div class="card"><div class="label">今日注册账号</div><div class="value" id="registrationsToday">-</div><div class="hint">按账号创建时间统计</div></div>
+            <div class="card"><div class="label">今日 Stripe 收入</div><div class="value" id="stripeRechargeToday">-</div><div class="hint" id="stripeRechargeHint">-</div></div>
+            <div class="card"><div class="label">今日 Steam 收入</div><div class="value" id="steamRechargeToday">-</div><div class="hint" id="steamRechargeHint">-</div></div>
+        </section>
+
+        <section class="grid">
+            <div class="panel"><h2>最近24小时最后活跃分布，10分钟桶</h2><div class="chart-box"><canvas id="onlineChart"></canvas></div><div class="note" id="onlineNote"></div></div>
+            <div class="panel"><h2>每日充值金额</h2><div class="chart-box"><canvas id="rechargeChart"></canvas></div><div class="note">金额按支付表最小货币单位除以100展示，图中默认展示 CNY。</div></div>
+            <div class="panel"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近14日日活来自进入游戏日志，快照仅用于生产库暂不可用时的补充。</div></div>
+            <div class="panel"><h2>元宝消耗统计，按小时</h2><div class="chart-box"><canvas id="yuanbaoSpendChart"></canvas></div><div class="note" id="yuanbaoSpendNote"></div></div>
+            <div class="panel">
+                <h2>近14日道具购买 Top 12</h2>
+                <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
+                <div class="table-scroll"><table><thead><tr><th>道具</th><th>购买次数</th><th>数量</th><th>消耗元宝</th></tr></thead><tbody id="itemPurchaseRows"></tbody></table></div>
+            </div>
+            <div class="panel">
+                <h2>近14日道具使用 Top 12</h2>
+                <div class="chart-box"><canvas id="itemUseChart"></canvas></div>
+                <div class="table-scroll"><table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <div class="stat-panel-head">
+                    <div class="stat-panel-title">
+                        <h2 id="statTableTitle">统计明细</h2>
+                        <div class="stat-description" id="statTableDescription">读取中...</div>
+                    </div>
+                    <label class="toolbar">每页
+                        <select id="statPageSize">
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="tabs" role="tablist" aria-label="统计明细分类">
+                    <button class="tab-btn active" type="button" data-stat-tab="items">道具</button>
+                    <button class="tab-btn" type="button" data-stat-tab="money">金钱</button>
+                    <button class="tab-btn" type="button" data-stat-tab="yuanbao">元宝</button>
+                    <button class="tab-btn" type="button" data-stat-tab="prestige">声望</button>
+                    <button class="tab-btn" type="button" data-stat-tab="guild">公会</button>
+                    <button class="tab-btn" type="button" data-stat-tab="registrants">注册者</button>
+                </div>
+                <div class="table-scroll">
+                    <table id="statTable">
+                        <thead id="statTableHead"></thead>
+                        <tbody id="statTableRows"><tr><td>读取中...</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="pager">
+                    <div id="statPagerInfo">-</div>
+                    <div class="pager-actions">
+                        <button id="statPrevPage" type="button">上一页</button>
+                        <button id="statNextPage" type="button">下一页</button>
+                    </div>
+                </div>
+            </div>
+        </section>
     </section>
 
-    <section class="grid">
-        <div class="panel"><h2>最近24小时最后活跃分布，10分钟桶</h2><div class="chart-box"><canvas id="onlineChart"></canvas></div><div class="note" id="onlineNote"></div></div>
-        <div class="panel"><h2>每日充值金额</h2><div class="chart-box"><canvas id="rechargeChart"></canvas></div><div class="note">金额按支付表最小货币单位除以100展示，图中默认展示 CNY。</div></div>
-        <div class="panel"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近14日日活来自进入游戏日志，快照仅用于生产库暂不可用时的补充。</div></div>
-        <div class="panel"><h2>元宝消耗统计，按小时</h2><div class="chart-box"><canvas id="yuanbaoSpendChart"></canvas></div><div class="note" id="yuanbaoSpendNote"></div></div>
-        <div class="panel">
-            <h2>近14日道具购买 Top 12</h2>
-            <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
-            <div class="table-scroll"><table><thead><tr><th>道具</th><th>购买次数</th><th>数量</th><th>消耗元宝</th></tr></thead><tbody id="itemPurchaseRows"></tbody></table></div>
-        </div>
-        <div class="panel">
-            <h2>近14日道具使用 Top 12</h2>
-            <div class="chart-box"><canvas id="itemUseChart"></canvas></div>
-            <div class="table-scroll"><table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table></div>
-        </div>
-        <div class="panel wide">
-            <div class="stat-panel-head">
-                <div class="stat-panel-title">
-                    <h2 id="statTableTitle">统计明细</h2>
-                    <div class="stat-description" id="statTableDescription">读取中...</div>
-                </div>
-                <label class="toolbar">每页
-                    <select id="statPageSize">
-                        <option value="20" selected>20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                    </select>
-                </label>
+    <section id="specialClinicPage" class="page-section" hidden>
+        <section class="cards clinic-summary-grid">
+            <div class="card"><div class="label">成功特需诊断</div><div class="value" id="clinicDiagnoses">-</div><div class="hint">近14日确诊记录数</div></div>
+            <div class="card"><div class="label">参与医院</div><div class="value" id="clinicHospitals">-</div><div class="hint">发生确诊的医院数</div></div>
+            <div class="card"><div class="label">付费票看病</div><div class="value" id="clinicPaidDiagnoses">-</div><div class="hint">使用元宝补诊票确诊</div></div>
+            <div class="card"><div class="label">购票元宝成本</div><div class="value" id="clinicIngotCost">-</div><div class="hint" id="clinicTicketHint">-</div></div>
+            <div class="card"><div class="label">库存消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
+            <div class="card"><div class="label">异常提示</div><div class="value" id="clinicAlertCount">-</div><div class="hint">近14日提示类风险总数</div></div>
+        </section>
+
+        <section class="grid">
+            <div class="panel"><h2>每小时特需诊断与购票</h2><div class="chart-box"><canvas id="clinicHourlyChart"></canvas></div><div class="note">时间口径使用北京时间小时桶。</div></div>
+            <div class="panel"><h2>病历等级分布</h2><div class="chart-box"><canvas id="clinicTierChart"></canvas></div><div class="table-scroll clinic-table"><table><thead><tr><th>等级</th><th>确诊</th><th>医院</th><th>付费票</th></tr></thead><tbody id="clinicTierRows"></tbody></table></div></div>
+            <div class="panel"><h2>资源奖品发放，按小时</h2><div class="chart-box"><canvas id="clinicResourceChart"></canvas></div><div class="note">资源奖励来自确诊记录主账。</div></div>
+            <div class="panel"><h2>对账异常</h2><div class="table-scroll clinic-table"><table><thead><tr><th>项目</th><th>主口径</th><th>校验口径</th><th>差异</th></tr></thead><tbody id="clinicAuditRows"></tbody></table></div><div class="table-scroll clinic-table"><table><thead><tr><th>异常提示</th><th>次数</th></tr></thead><tbody id="clinicAlertRows"></tbody></table></div></div>
+            <div class="panel wide">
+                <h2>每小时总览</h2>
+                <div class="table-scroll clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>临时患者</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
             </div>
-            <div class="tabs" role="tablist" aria-label="统计明细分类">
-                <button class="tab-btn active" type="button" data-stat-tab="items">道具</button>
-                <button class="tab-btn" type="button" data-stat-tab="money">金钱</button>
-                <button class="tab-btn" type="button" data-stat-tab="yuanbao">元宝</button>
-                <button class="tab-btn" type="button" data-stat-tab="prestige">声望</button>
-                <button class="tab-btn" type="button" data-stat-tab="guild">公会</button>
-                <button class="tab-btn" type="button" data-stat-tab="registrants">注册者</button>
+            <div class="panel wide">
+                <h2>奖品发放</h2>
+                <div class="table-scroll clinic-table"><table><thead><tr><th>道具 ID</th><th>奖品</th><th>发放数量</th><th>记录数</th><th>医院数</th></tr></thead><tbody id="clinicRewardRows"></tbody></table></div>
             </div>
-            <div class="table-scroll">
-                <table id="statTable">
-                    <thead id="statTableHead"></thead>
-                    <tbody id="statTableRows"><tr><td>读取中...</td></tr></tbody>
-                </table>
+            <div class="panel wide">
+                <h2>具体病历分布</h2>
+                <div class="table-scroll clinic-table"><table><thead><tr><th>病历编码</th><th>病历名</th><th>等级</th><th>确诊</th><th>医院数</th><th>付费票</th></tr></thead><tbody id="clinicPatientRows"></tbody></table></div>
             </div>
-            <div class="pager">
-                <div id="statPagerInfo">-</div>
-                <div class="pager-actions">
-                    <button id="statPrevPage" type="button">上一页</button>
-                    <button id="statNextPage" type="button">下一页</button>
-                </div>
+            <div class="panel wide">
+                <h2>每日库存消耗</h2>
+                <div class="table-scroll clinic-table"><table><thead><tr><th>日期</th><th>状态</th><th>初始</th><th>剩余</th><th>消耗率</th><th>柜子已诊</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
             </div>
-        </div>
+            <div class="panel wide">
+                <h2>医院行为 Top 30</h2>
+                <div class="table-scroll clinic-table"><table><thead><tr><th>医院 ID</th><th>医院名</th><th>院长</th><th>日期</th><th>确诊</th><th>付费确诊</th><th>购票张数</th><th>元宝成本</th><th>道具奖励</th><th>临时患者</th><th>首次</th><th>最后</th></tr></thead><tbody id="clinicHospitalRows"></tbody></table></div>
+            </div>
+        </section>
     </section>
 </main>
 
@@ -296,9 +346,13 @@
 <script>
     const charts = {};
     const renderState = {};
+    let currentPage = 'overall';
     const statTableState = {tab: 'items', page: 1, pageSize: 20, total: 0};
 
-    document.getElementById('refreshBtn').addEventListener('click', loadStats);
+    document.getElementById('refreshBtn').addEventListener('click', refreshCurrentPage);
+    document.querySelectorAll('[data-page-tab]').forEach(button => {
+        button.addEventListener('click', () => switchPage(button.dataset.pageTab));
+    });
     document.getElementById('itemModalClose').addEventListener('click', closeItemModal);
     document.querySelectorAll('[data-stat-tab]').forEach(button => {
         button.addEventListener('click', () => {
@@ -332,8 +386,23 @@
     window.addEventListener('load', () => {
         loadStats();
         loadStatTable();
-        setInterval(loadStats, 60000);
+        setInterval(refreshCurrentPage, 60000);
     });
+
+    function switchPage(page) {
+        currentPage = page === 'specialClinic' ? 'specialClinic' : 'overall';
+        document.querySelectorAll('[data-page-tab]').forEach(button => {
+            button.classList.toggle('active', button.dataset.pageTab === currentPage);
+        });
+        document.getElementById('overallPage').hidden = currentPage !== 'overall';
+        document.getElementById('specialClinicPage').hidden = currentPage !== 'specialClinic';
+        refreshCurrentPage();
+    }
+
+    function refreshCurrentPage() {
+        if (currentPage === 'specialClinic') loadSpecialClinicStats();
+        else loadStats();
+    }
 
     async function loadStats() {
         const error = document.getElementById('error');
@@ -345,6 +414,19 @@
             render(await response.json());
         } catch (e) {
             error.textContent = `读取统计失败：${e.message || e}`;
+            error.style.display = 'block';
+        }
+    }
+
+    async function loadSpecialClinicStats() {
+        const error = document.getElementById('error');
+        error.style.display = 'none';
+        try {
+            const response = await fetch('api/special-clinic-stats', {cache: 'no-store'});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            renderSpecialClinic(await response.json());
+        } catch (e) {
+            error.textContent = `读取特需门诊统计失败：${e.message || e}`;
             error.style.display = 'block';
         }
     }
@@ -426,6 +508,90 @@
             labels: rows.map(row => row.item_name),
             datasets: [{label: '使用次数', data: rows.map(row => row.quantity), backgroundColor: 'rgba(184, 152, 255, 0.62)'}]
         }, {indexAxis: 'y'});
+    }
+
+    function renderSpecialClinic(data) {
+        const signature = stableStringify(data);
+        if (renderState.specialClinicSignature === signature) return;
+        renderState.specialClinicSignature = signature;
+        if (data.sourceError) {
+            const error = document.getElementById('error');
+            error.textContent = `特需门诊数据源暂不可用：${data.sourceError}`;
+            error.style.display = 'block';
+        }
+        const s = data.summary || {};
+        const audit = data.auditChecks || {checks: [], alerts: []};
+        const alertTotal = (audit.alerts || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
+        setText('generatedAt', `更新时间 ${formatDateTime(data.generatedAt)}，特需门诊时区 ${data.zoneId || '-'}`);
+        setText('clinicDiagnoses', formatNumber(s.diagnosis_count));
+        setText('clinicHospitals', formatNumber(s.active_hospital_count));
+        setText('clinicPaidDiagnoses', formatNumber(s.paid_diagnosis_count));
+        setText('clinicIngotCost', formatNumber(s.ingot_cost));
+        setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
+        setText('clinicConsumeRate', `${formatMoney(s.consume_rate)}%`);
+        setText('clinicCabinetHint', `${s.cabinet_status || '-'}，剩余 ${formatNumber(s.remaining_total)} / 初始 ${formatNumber(s.initial_total)}`);
+        setText('clinicAlertCount', formatNumber(alertTotal));
+        renderSpecialClinicCharts(data);
+        renderSimpleRows('clinicTierRows', data.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
+        renderSimpleRows('clinicAuditRows', audit.checks || [], ['name', 'left', 'right', 'diff'], {diff: value => Number(value || 0) === 0 ? '<span class="pill green">0</span>' : `<span class="pill yellow">${formatNumber(value)}</span>`});
+        renderSimpleRows('clinicAlertRows', audit.alerts || [], ['name', 'count']);
+        renderSimpleRows('clinicHourlyRows', data.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'temporary_patients'], {}, 40);
+        renderSimpleRows('clinicRewardRows', data.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
+        renderSimpleRows('clinicPatientRows', data.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
+        renderSimpleRows('clinicCabinetRows', data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'remaining_total', 'consume_rate', 'total_diagnoses', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`});
+        renderSimpleRows('clinicHospitalRows', data.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
+    }
+
+    function renderSpecialClinicCharts(data) {
+        const hourly = data.hourlySummary || [];
+        upsertChart('clinicHourlyChart', 'line', 'clinicHourlyChart', {
+            labels: hourly.map(row => row.label),
+            datasets: [
+                {label: '确诊', data: hourly.map(row => row.diagnosis_count), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.14)', tension: 0.32},
+                {label: '购票张数', data: hourly.map(row => row.paid_ticket_purchased), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32},
+                {label: '元宝成本', data: hourly.map(row => row.ingot_cost), borderColor: '#ffd166', backgroundColor: 'rgba(255, 209, 102, 0.14)', tension: 0.32}
+            ]
+        });
+        const tiers = data.tierDistribution || [];
+        upsertChart('clinicTierChart', 'bar', 'clinicTierChart', {
+            labels: tiers.map(row => row.tier),
+            datasets: [{label: '确诊次数', data: tiers.map(row => row.diagnosis_count), backgroundColor: 'rgba(184, 152, 255, 0.62)'}]
+        });
+        const resources = data.resourceRewards || [];
+        upsertChart('clinicResourceChart', 'bar', 'clinicResourceChart', {
+            labels: resources.map(row => row.label),
+            datasets: [
+                {label: '临时患者', data: resources.map(row => row.temporary_patients), backgroundColor: 'rgba(84, 167, 255, 0.58)'},
+                {label: '元宝奖励', data: resources.map(row => row.ingot_reward), backgroundColor: 'rgba(255, 209, 102, 0.68)'},
+                {label: '声望', data: resources.map(row => row.prestige_reward), backgroundColor: 'rgba(72, 213, 151, 0.52)'},
+                {label: '荣耀', data: resources.map(row => row.glory_reward), backgroundColor: 'rgba(255, 107, 134, 0.52)'}
+            ]
+        }, {
+            scales: {
+                x: {stacked: true, ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
+                y: {stacked: true, ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true}
+            }
+        });
+    }
+
+    function renderSimpleRows(id, rows, keys, customRenderers = {}, limit = 0) {
+        const tbody = document.getElementById(id);
+        const visibleRows = limit ? rows.slice(-limit) : rows;
+        tbody.innerHTML = '';
+        if (!visibleRows.length) {
+            tbody.innerHTML = `<tr><td colspan="${keys.length}">没有数据</td></tr>`;
+            return;
+        }
+        visibleRows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = keys.map(key => {
+                if (customRenderers[key]) return `<td>${customRenderers[key](row[key], row)}</td>`;
+                const value = row[key];
+                const text = typeof value === 'number' ? formatNumber(value) : escapeHtml(value ?? '-');
+                return `<td>${text}</td>`;
+            }).join('');
+            tbody.appendChild(tr);
+        });
     }
 
     async function loadStatTable() {

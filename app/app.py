@@ -19,6 +19,21 @@ ZONE_ID = os.getenv("OPS_DASHBOARD_TIME_ZONE", "Asia/Tokyo")
 QUERY_TIMEOUT_SECONDS = int(os.getenv("OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS", "10"))
 STAT_TABLE_PAGE_SIZES = {20, 50, 100}
 STAT_TABLE_TABS = {"items", "money", "yuanbao", "prestige", "guild", "registrants"}
+SPECIAL_CLINIC_ZONE_ID = "Asia/Shanghai"
+SPECIAL_CLINIC_ITEM_NAMES = {
+    1222: "广告牌I",
+    1327: "聪明胶囊",
+    1329: "胶囊",
+    1330: "可爱胶囊",
+    1662: "很加快预约",
+    1664: "急速研究",
+    1665: "加快预约",
+    1666: "降低成本",
+    1667: "提高效率",
+    1671: "专家加班",
+    1791: "补签卡",
+    1792: "特需门诊票",
+}
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
 
@@ -768,6 +783,393 @@ def merge_snapshot_history(stats):
     return stats
 
 
+def load_special_clinic_stats_from_prod():
+    with prod_connection() as conn:
+        hourly_summary = load_special_clinic_hourly_summary(conn)
+        tier_distribution = load_special_clinic_tier_distribution(conn)
+        patient_distribution = load_special_clinic_patient_distribution(conn)
+        reward_items = load_special_clinic_reward_items(conn)
+        resource_rewards = load_special_clinic_resource_rewards(conn)
+        ticket_flows = load_special_clinic_ticket_flows(conn)
+        daily_cabinet = load_special_clinic_daily_cabinet(conn)
+        hospital_daily = load_special_clinic_hospital_daily(conn)
+        audit_checks = load_special_clinic_audit_checks(conn)
+        return {
+            "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
+            "zoneId": SPECIAL_CLINIC_ZONE_ID,
+            "summary": load_special_clinic_summary(conn),
+            "hourlySummary": hourly_summary,
+            "tierDistribution": tier_distribution,
+            "patientDistribution": patient_distribution,
+            "rewardItems": reward_items,
+            "resourceRewards": resource_rewards,
+            "ticketFlows": ticket_flows,
+            "dailyCabinet": daily_cabinet,
+            "hospitalDaily": hospital_daily,
+            "auditChecks": audit_checks,
+        }
+
+
+def load_special_clinic_summary(conn):
+    row = query_one(
+        conn,
+        """
+        with r as (
+            select *
+            from t_special_clinic_patient_record
+            where clinic_date >= ((now() at time zone %s)::date - 13)
+        ), t as (
+            select *
+            from t_special_clinic_ticket_log
+            where clinic_date >= ((now() at time zone %s)::date - 13)
+        ), c as (
+            select *
+            from t_special_clinic_cabinet
+            order by clinic_date desc, id desc
+            limit 1
+        )
+        select
+            (select count(*) from r) as diagnosis_count,
+            (select count(distinct hospital_id) from r) as active_hospital_count,
+            (select count(*) from r where ticket_type_used = 'PAID') as paid_diagnosis_count,
+            (select coalesce(sum(greatest(paid_delta, 0)), 0) from t where change_type = 'PURCHASE') as paid_ticket_purchased,
+            (select coalesce(sum(ingot_cost), 0) from t where change_type = 'PURCHASE') as ingot_cost,
+            (select coalesce(sum(temporary_patients), 0) from r) as temporary_patients,
+            (select coalesce(sum(ingot_reward), 0) from r) as ingot_reward,
+            (select coalesce(sum(money_reward), 0) from r) as money_reward,
+            (select coalesce(sum(prestige_reward), 0) from r) as prestige_reward,
+            (select coalesce(sum(glory_reward), 0) from r) as glory_reward,
+            coalesce((select clinic_date::text from c), '') as latest_clinic_date,
+            coalesce((select status from c), '') as cabinet_status,
+            coalesce((select initial_total from c), 0) as initial_total,
+            coalesce((select remaining_total from c), 0) as remaining_total,
+            coalesce((select total_diagnoses from c), 0) as total_diagnoses,
+            coalesce((select empty_attempt_count from c), 0) as empty_attempt_count,
+            coalesce((select critical_admitted_count from c), 0) as critical_admitted_count
+        """,
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+    )
+    initial_total = int(row.get("initial_total") or 0)
+    remaining_total = int(row.get("remaining_total") or 0)
+    row["consume_rate"] = round((initial_total - remaining_total) * 100 / initial_total, 2) if initial_total else 0
+    return row
+
+
+def load_special_clinic_hourly_summary(conn):
+    return query_list(
+        conn,
+        """
+        with record_hourly as (
+            select date_trunc('hour', create_time at time zone 'UTC' at time zone %s) as hour_bucket,
+                   count(*) as diagnosis_count,
+                   count(distinct hospital_id) as active_hospital_count,
+                   count(*) filter (where ticket_type_used = 'PAID') as paid_diagnosis_count,
+                   coalesce(sum((reward_items ->> '1792')::int), 0) as reward_ticket_count,
+                   coalesce(sum(temporary_patients), 0) as temporary_patients,
+                   coalesce(sum(ingot_reward), 0) as ingot_reward,
+                   coalesce(sum(money_reward), 0) as money_reward,
+                   coalesce(sum(prestige_reward), 0) as prestige_reward,
+                   coalesce(sum(glory_reward), 0) as glory_reward
+            from t_special_clinic_patient_record
+            where clinic_date >= ((now() at time zone %s)::date - 13)
+            group by hour_bucket
+        ), ticket_hourly as (
+            select date_trunc('hour', create_time at time zone 'UTC' at time zone %s) as hour_bucket,
+                   coalesce(sum(abs(appointment_delta)) filter (where appointment_delta < 0), 0) as appointment_ticket_consume,
+                   coalesce(sum(abs(gifted_delta)) filter (where gifted_delta < 0), 0) as gifted_ticket_consume,
+                   coalesce(sum(abs(paid_delta)) filter (where paid_delta < 0), 0) as paid_ticket_consume,
+                   coalesce(sum(paid_delta) filter (where paid_delta > 0 and change_type = 'PURCHASE'), 0) as paid_ticket_purchased,
+                   coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
+            from t_special_clinic_ticket_log
+            where clinic_date >= ((now() at time zone %s)::date - 13)
+            group by hour_bucket
+        )
+        select to_char(coalesce(r.hour_bucket, t.hour_bucket), 'MM-DD HH24:00') as label,
+               coalesce(r.diagnosis_count, 0) as diagnosis_count,
+               coalesce(r.active_hospital_count, 0) as active_hospital_count,
+               coalesce(r.paid_diagnosis_count, 0) as paid_diagnosis_count,
+               coalesce(t.appointment_ticket_consume, 0) as appointment_ticket_consume,
+               coalesce(t.gifted_ticket_consume, 0) as gifted_ticket_consume,
+               coalesce(t.paid_ticket_consume, 0) as paid_ticket_consume,
+               coalesce(t.paid_ticket_purchased, 0) as paid_ticket_purchased,
+               coalesce(t.ingot_cost, 0) as ingot_cost,
+               coalesce(r.reward_ticket_count, 0) as reward_ticket_count,
+               coalesce(r.temporary_patients, 0) as temporary_patients,
+               coalesce(r.ingot_reward, 0) as ingot_reward,
+               coalesce(r.money_reward, 0) as money_reward,
+               coalesce(r.prestige_reward, 0) as prestige_reward,
+               coalesce(r.glory_reward, 0) as glory_reward
+        from record_hourly r
+        full outer join ticket_hourly t on t.hour_bucket = r.hour_bucket
+        order by coalesce(r.hour_bucket, t.hour_bucket)
+        """,
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+    )
+
+
+def load_special_clinic_tier_distribution(conn):
+    return query_list(
+        conn,
+        """
+        select coalesce(tier, 'UNKNOWN') as tier,
+               count(*) as diagnosis_count,
+               count(distinct hospital_id) as hospital_count,
+               count(*) filter (where ticket_type_used = 'PAID') as paid_ticket_count
+        from t_special_clinic_patient_record
+        where clinic_date >= ((now() at time zone %s)::date - 13)
+        group by coalesce(tier, 'UNKNOWN')
+        order by diagnosis_count desc, tier
+        """,
+        (SPECIAL_CLINIC_ZONE_ID,),
+    )
+
+
+def load_special_clinic_patient_distribution(conn):
+    return query_list(
+        conn,
+        """
+        select coalesce(patient_code, '') as patient_code,
+               coalesce(patient_name, '') as patient_name,
+               coalesce(tier, 'UNKNOWN') as tier,
+               count(*) as diagnosis_count,
+               count(distinct hospital_id) as hospital_count,
+               count(*) filter (where ticket_type_used = 'PAID') as paid_ticket_count
+        from t_special_clinic_patient_record
+        where clinic_date >= ((now() at time zone %s)::date - 13)
+        group by patient_code, patient_name, tier
+        order by diagnosis_count desc, paid_ticket_count desc, patient_name
+        limit 40
+        """,
+        (SPECIAL_CLINIC_ZONE_ID,),
+    )
+
+
+def load_special_clinic_reward_items(conn):
+    rows = query_list(
+        conn,
+        """
+        select e.key::bigint as item_id,
+               coalesce(sum(e.value::int), 0) as item_count,
+               count(*) as record_count,
+               count(distinct r.hospital_id) as hospital_count
+        from t_special_clinic_patient_record r
+        cross join lateral jsonb_each_text(coalesce(r.reward_items, '{}'::jsonb)) e
+        where r.clinic_date >= ((now() at time zone %s)::date - 13)
+        group by e.key::bigint
+        order by item_count desc, record_count desc, item_id
+        """,
+        (SPECIAL_CLINIC_ZONE_ID,),
+    )
+    for row in rows:
+        row["item_name"] = SPECIAL_CLINIC_ITEM_NAMES.get(int(row["item_id"]), f"道具 {row['item_id']}")
+    return rows
+
+
+def load_special_clinic_resource_rewards(conn):
+    return query_list(
+        conn,
+        """
+        select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
+               coalesce(sum(temporary_patients), 0) as temporary_patients,
+               coalesce(sum(ingot_reward), 0) as ingot_reward,
+               coalesce(sum(money_reward), 0) as money_reward,
+               coalesce(sum(prestige_reward), 0) as prestige_reward,
+               coalesce(sum(glory_reward), 0) as glory_reward
+        from t_special_clinic_patient_record
+        where clinic_date >= ((now() at time zone %s)::date - 13)
+        group by label
+        order by min(create_time)
+        """,
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+    )
+
+
+def load_special_clinic_ticket_flows(conn):
+    return query_list(
+        conn,
+        """
+        select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
+               coalesce(change_type, 'UNKNOWN') as change_type,
+               coalesce(reason, '') as reason,
+               coalesce(sum(appointment_delta), 0) as appointment_delta_sum,
+               coalesce(sum(gifted_delta), 0) as gifted_delta_sum,
+               coalesce(sum(paid_delta), 0) as paid_delta_sum,
+               coalesce(sum(ingot_cost), 0) as ingot_cost_sum,
+               count(*) as row_count,
+               count(distinct hospital_id) as hospital_count
+        from t_special_clinic_ticket_log
+        where clinic_date >= ((now() at time zone %s)::date - 13)
+        group by label, change_type, reason
+        order by min(create_time) desc, row_count desc
+        limit 60
+        """,
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+    )
+
+
+def load_special_clinic_daily_cabinet(conn):
+    rows = query_list(
+        conn,
+        """
+        with record_daily as (
+            select clinic_date, count(*) as diagnosis_count_from_record
+            from t_special_clinic_patient_record
+            group by clinic_date
+        )
+        select c.clinic_date::text as clinic_date,
+               coalesce(c.status, '') as status,
+               coalesce(c.initial_total, 0) as initial_total,
+               coalesce(c.remaining_total, 0) as remaining_total,
+               coalesce(c.total_diagnoses, 0) as total_diagnoses,
+               coalesce(r.diagnosis_count_from_record, 0) as diagnosis_count_from_record,
+               coalesce(c.paid_ticket_count, 0) as paid_ticket_count,
+               coalesce(c.empty_attempt_count, 0) as empty_attempt_count,
+               coalesce(c.critical_admitted_count, 0) as critical_admitted_count,
+               coalesce(c.consultation_round, 0) as consultation_round,
+               coalesce(c.consultation_heat, 0) as consultation_heat,
+               coalesce(c.consultation_threshold, 0) as consultation_threshold,
+               coalesce(c.remaining_by_tier::text, '{}') as remaining_by_tier
+        from t_special_clinic_cabinet c
+        left join record_daily r on r.clinic_date = c.clinic_date
+        order by c.clinic_date desc
+        limit 14
+        """,
+    )
+    for row in rows:
+        initial_total = int(row.get("initial_total") or 0)
+        remaining_total = int(row.get("remaining_total") or 0)
+        row["consume_rate"] = round((initial_total - remaining_total) * 100 / initial_total, 2) if initial_total else 0
+    return rows
+
+
+def load_special_clinic_hospital_daily(conn):
+    return query_list(
+        conn,
+        """
+        with reward_item_summary as (
+            select r.hospital_id, r.clinic_date, coalesce(sum(e.value::int), 0) as reward_item_count
+            from t_special_clinic_patient_record r
+            cross join lateral jsonb_each_text(coalesce(r.reward_items, '{}'::jsonb)) e
+            group by r.hospital_id, r.clinic_date
+        ), ticket_purchase as (
+            select hospital_id, clinic_date,
+                   coalesce(sum(paid_delta) filter (where paid_delta > 0 and change_type = 'PURCHASE'), 0) as ticket_purchase_count,
+                   coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
+            from t_special_clinic_ticket_log
+            group by hospital_id, clinic_date
+        )
+        select r.hospital_id,
+               coalesce(h.hospital_name, '') as hospital_name,
+               coalesce(h.director_name, '') as director_name,
+               r.clinic_date::text as clinic_date,
+               count(*) as diagnosis_count,
+               count(*) filter (where r.ticket_type_used = 'PAID') as paid_diagnosis_count,
+               coalesce(max(t.ticket_purchase_count), 0) as ticket_purchase_count,
+               coalesce(max(t.ingot_cost), 0) as ingot_cost,
+               coalesce(max(i.reward_item_count), 0) as reward_item_count,
+               coalesce(sum(r.temporary_patients), 0) as temporary_patients,
+               coalesce(sum(r.ingot_reward + r.money_reward + r.prestige_reward + r.glory_reward), 0) as resource_reward_total,
+               to_char((min(r.create_time) at time zone 'UTC' at time zone %s), 'MM-DD HH24:MI') as first_diagnosis_time,
+               to_char((max(r.create_time) at time zone 'UTC' at time zone %s), 'MM-DD HH24:MI') as last_diagnosis_time
+        from t_special_clinic_patient_record r
+        left join t_hospitals h on h.id = r.hospital_id
+        left join reward_item_summary i on i.hospital_id = r.hospital_id and i.clinic_date = r.clinic_date
+        left join ticket_purchase t on t.hospital_id = r.hospital_id and t.clinic_date = r.clinic_date
+        where r.clinic_date >= ((now() at time zone %s)::date - 13)
+        group by r.hospital_id, h.hospital_name, h.director_name, r.clinic_date
+        order by diagnosis_count desc, paid_diagnosis_count desc, ingot_cost desc, r.hospital_id
+        limit 30
+        """,
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+    )
+
+
+def load_special_clinic_audit_checks(conn):
+    row = query_one(
+        conn,
+        """
+        with patient as (
+            select count(*) as diagnosis_count,
+                   coalesce(sum((reward_items ->> '1792')::int), 0) as reward_ticket_from_records,
+                   coalesce(sum(ingot_reward), 0) as ingot_reward_from_records
+            from t_special_clinic_patient_record
+            where clinic_date >= ((now() at time zone %s)::date - 13)
+        ), ticket as (
+            select count(*) filter (where change_type = 'CONSUME') as ticket_consume_rows,
+                   coalesce(sum(appointment_delta) filter (where reason = '特需诊断药方奖励门诊票'), 0) as reward_ticket_from_logs,
+                   coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost_from_ticket_log
+            from t_special_clinic_ticket_log
+            where clinic_date >= ((now() at time zone %s)::date - 13)
+        ), yuanbao as (
+            select coalesce(sum(greatest(old_value - new_value, 0)) filter (where reason like '特需门诊元宝补诊%%'), 0) as ingot_cost_from_yuanbao_log,
+                   coalesce(sum(greatest(new_value - old_value, 0)) filter (where reason = '特需门诊确诊奖励'), 0) as ingot_reward_from_yuanbao_log
+            from t_log_yuanbao
+            where (create_time at time zone 'UTC' at time zone %s)::date >= ((now() at time zone %s)::date - 13)
+        ), balance_diff as (
+            select count(*) as mismatch_count
+            from t_special_clinic_player_state s
+            left join t_backpack b on b.hospital_id = s.hospital_id
+            where coalesce(s.appointment_ticket_balance, 0) + coalesce(s.gifted_ticket_balance, 0) + coalesce(s.paid_ticket_balance, 0)
+                <> coalesce((b.items ->> '1792')::int, 0)
+        ), prompt as (
+            select
+                count(*) filter (where content like '%%特需门诊票不足%%' or content like '%%门诊票不足%%') as no_ticket_count,
+                count(*) filter (where content like '%%今日患者已经看完%%' or content like '%%今日门诊已满%%') as empty_count,
+                count(*) filter (where content like '%%今日门诊已经结诊%%' or content like '%%今日门诊已结诊%%') as closed_count,
+                count(*) filter (where content like '%%今日元宝购票已达10张上限%%') as purchase_limit_count,
+                count(*) filter (where content like '%%该补诊包暂未开放购买%%') as unopened_package_count,
+                count(*) filter (where content like '%%元宝不足%%') as insufficient_ingot_count
+            from t_log_right_bottom
+            where (create_time at time zone 'UTC' at time zone %s)::date >= ((now() at time zone %s)::date - 13)
+        )
+        select *
+        from patient, ticket, yuanbao, balance_diff, prompt
+        """,
+        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+    )
+    checks = [
+        {
+            "name": "看病数对票消耗",
+            "left": row.get("diagnosis_count", 0),
+            "right": row.get("ticket_consume_rows", 0),
+            "diff": int(row.get("diagnosis_count", 0) or 0) - int(row.get("ticket_consume_rows", 0) or 0),
+        },
+        {
+            "name": "返票记录对流水",
+            "left": row.get("reward_ticket_from_records", 0),
+            "right": row.get("reward_ticket_from_logs", 0),
+            "diff": int(row.get("reward_ticket_from_records", 0) or 0) - int(row.get("reward_ticket_from_logs", 0) or 0),
+        },
+        {
+            "name": "购票元宝成本对日志",
+            "left": row.get("ingot_cost_from_ticket_log", 0),
+            "right": row.get("ingot_cost_from_yuanbao_log", 0),
+            "diff": int(row.get("ingot_cost_from_ticket_log", 0) or 0) - int(row.get("ingot_cost_from_yuanbao_log", 0) or 0),
+        },
+        {
+            "name": "确诊元宝奖励对日志",
+            "left": row.get("ingot_reward_from_records", 0),
+            "right": row.get("ingot_reward_from_yuanbao_log", 0),
+            "diff": int(row.get("ingot_reward_from_records", 0) or 0) - int(row.get("ingot_reward_from_yuanbao_log", 0) or 0),
+        },
+        {
+            "name": "当前票余额不一致医院",
+            "left": row.get("mismatch_count", 0),
+            "right": 0,
+            "diff": int(row.get("mismatch_count", 0) or 0),
+        },
+    ]
+    alerts = [
+        {"name": "无票尝试看病", "count": row.get("no_ticket_count", 0)},
+        {"name": "库存耗尽提示", "count": row.get("empty_count", 0)},
+        {"name": "结诊后尝试", "count": row.get("closed_count", 0)},
+        {"name": "购票触达上限", "count": row.get("purchase_limit_count", 0)},
+        {"name": "未开放包直调", "count": row.get("unopened_package_count", 0)},
+        {"name": "元宝不足", "count": row.get("insufficient_ingot_count", 0)},
+    ]
+    return {"checks": checks, "alerts": alerts}
+
+
 def load_stats():
     stats = load_stats_from_prod()
     record_snapshot(stats)
@@ -811,6 +1213,24 @@ def load_unavailable_stats(error: Exception):
     }
 
 
+def load_unavailable_special_clinic_stats(error: Exception):
+    return {
+        "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
+        "zoneId": SPECIAL_CLINIC_ZONE_ID,
+        "sourceError": str(error),
+        "summary": {},
+        "hourlySummary": [],
+        "tierDistribution": [],
+        "patientDistribution": [],
+        "rewardItems": [],
+        "resourceRewards": [],
+        "ticketFlows": [],
+        "dailyCabinet": [],
+        "hospitalDaily": [],
+        "auditChecks": {"checks": [], "alerts": []},
+    }
+
+
 def empty_purchase_insights():
     return {
         "item": {"top": [], "buyers": []},
@@ -836,6 +1256,15 @@ def stats_api():
     except Exception as exc:
         app.logger.warning("stats unavailable: %s", exc)
         return jsonify(load_unavailable_stats(exc))
+
+
+@app.get("/api/special-clinic-stats")
+def special_clinic_stats_api():
+    try:
+        return jsonify(load_special_clinic_stats_from_prod())
+    except Exception as exc:
+        app.logger.warning("special clinic stats unavailable: %s", exc)
+        return jsonify(load_unavailable_special_clinic_stats(exc))
 
 
 @app.get("/api/stat-table")
