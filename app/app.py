@@ -1069,8 +1069,8 @@ def load_special_clinic_weekly_cabinet(conn):
         ), cabinet_weekly as (
             select clinic_week_start,
                    (array_agg(status::text order by clinic_date desc, id desc))[1] as status,
-                   coalesce((array_agg(initial_total order by clinic_date asc, id asc))[1], 0) as initial_total,
-                   coalesce((array_agg(remaining_total order by clinic_date desc, id desc))[1], 0) as remaining_total,
+                   coalesce(sum(initial_total), 0) as initial_total,
+                   coalesce(sum(remaining_total), 0) as remaining_total,
                    coalesce(sum(total_diagnoses), 0) as total_diagnoses,
                    coalesce(sum(paid_ticket_count), 0) as paid_ticket_count,
                    coalesce(sum(empty_attempt_count), 0) as empty_attempt_count,
