@@ -62,7 +62,7 @@ docker compose down
 - 页面顶部提供站点级页签：`运营总览` 保持原有统计画面，`特需门诊` 展示常见病特需门诊只读分析。
 - 特需门诊页按北京时间统计近14日数据，库存表展示近 8 个周三开诊周期，包含每小时总览、病历等级分布、具体病历分布、道具奖品发放、资源奖品发放、每周库存消耗、医院行为 Top 30、对账异常和风险提示次数。
 - 特需门诊道具奖品来自 `reward_items` 道具 JSON，并单独展示 Top 图和明细表；主账资源来自确诊记录字段，声望读取 `prestige_reward`，资源图中金钱使用独立右轴，避免百万级金钱压住其他资源。
-- 特需门诊库存消耗率按周统计，库存口径优先使用周三周期柜体行，分子为该柜体行 `total_diagnoses`，分母为该柜体行 `initial_total`；`remaining_total` 展示该柜体行当前剩余，不参与消耗率公式。患者记录按周期汇总保留为 `diagnosis_count_from_record`，用于发现旧部署留下的日粒度记录差异。
+- 特需门诊库存消耗率按周统计，周总量取周三周期柜体行 `initial_total`，分子按同一周三周期汇总所有柜体行 `sum(total_diagnoses)`；页面主指标的 `remaining_total` 为 `initial_total - total_diagnoses` 的统计剩余，原始周三柜体剩余单独保留为 `cabinet_remaining_total`。患者记录按周期汇总保留为 `diagnosis_count_from_record`，用于发现旧部署留下的日粒度记录差异。
 - 特需门诊统计只读查询 `t_special_clinic_patient_record`、`t_special_clinic_ticket_log`、`t_special_clinic_cabinet`、`t_special_clinic_player_state`、`t_backpack`、`t_log_yuanbao` 和 `t_log_right_bottom`。
 - `.env` 和本地 SQLite 文件不应提交到任何仓库。
 

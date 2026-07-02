@@ -328,7 +328,7 @@
             </div>
             <div class="panel wide">
                 <h2>每周库存消耗</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>柜子已诊</th><th>消耗率</th><th>最新剩余</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>本周已诊</th><th>消耗率</th><th>统计剩余</th><th>柜体剩余</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>医院行为 Top 30</h2>
@@ -539,7 +539,7 @@
         setText('clinicIngotCost', formatNumber(s.ingot_cost));
         setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
         setText('clinicConsumeRate', `${formatMoney(s.consume_rate)}%`);
-        setText('clinicCabinetHint', `${s.cabinet_status || '-'}，本周已诊 ${formatNumber(s.total_diagnoses)} / 周总量 ${formatNumber(s.supply_total)}，最新剩余 ${formatNumber(s.remaining_total)}`);
+        setText('clinicCabinetHint', `${s.cabinet_status || '-'}，本周已诊 ${formatNumber(s.total_diagnoses)} / 周总量 ${formatNumber(s.supply_total)}，统计剩余 ${formatNumber(s.remaining_total)}`);
         setText('clinicAlertCount', formatNumber(alertTotal));
         renderSpecialClinicCharts(data);
         renderSimpleRows('clinicTierRows', data.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
@@ -549,7 +549,7 @@
         renderSimpleRows('clinicRewardRows', data.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
         renderSimpleRows('clinicResourceRows', data.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicPatientRows', data.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
-        renderSimpleRows('clinicCabinetRows', data.weeklyCabinet || data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`});
+        renderSimpleRows('clinicCabinetRows', data.weeklyCabinet || data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`});
         renderSimpleRows('clinicHospitalRows', data.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
     }
 

@@ -827,6 +827,7 @@ def load_special_clinic_stats_from_prod():
                 "cabinet_status": latest_week.get("status", ""),
                 "initial_total": latest_week.get("initial_total", 0),
                 "remaining_total": latest_week.get("remaining_total", 0),
+                "cabinet_remaining_total": latest_week.get("cabinet_remaining_total", 0),
                 "total_diagnoses": latest_week.get("total_diagnoses", 0),
                 "empty_attempt_count": latest_week.get("empty_attempt_count", 0),
                 "critical_admitted_count": latest_week.get("critical_admitted_count", 0),
@@ -895,7 +896,7 @@ def load_special_clinic_summary(conn):
 def add_special_clinic_supply_metrics(row):
     initial_total = int(row.get("initial_total") or 0)
     total_diagnoses = int(row.get("total_diagnoses") or 0)
-    supply_total = max(initial_total, total_diagnoses)
+    supply_total = initial_total if initial_total > 0 else total_diagnoses
     row["supply_total"] = supply_total
     row["consume_rate"] = round(total_diagnoses * 100 / supply_total, 2) if supply_total else 0
     return row
@@ -1075,23 +1076,36 @@ def load_special_clinic_weekly_cabinet(conn):
                                 id desc
                    ) as cabinet_rank
             from cabinet_recent
-        ), cabinet_weekly as (
-            select clinic_week_start,
-                   (array_agg(status::text order by clinic_date desc, id desc))[1] as status,
-                   coalesce((array_agg(initial_total order by clinic_date desc, id desc))[1], 0) as initial_total,
-                   coalesce((array_agg(remaining_total order by clinic_date desc, id desc))[1], 0) as remaining_total,
-                   coalesce((array_agg(total_diagnoses order by clinic_date desc, id desc))[1], 0) as total_diagnoses,
-                   coalesce((array_agg(paid_ticket_count order by clinic_date desc, id desc))[1], 0) as paid_ticket_count,
-                   coalesce((array_agg(empty_attempt_count order by clinic_date desc, id desc))[1], 0) as empty_attempt_count,
-                   {depleted_at_select},
-                   coalesce((array_agg(critical_admitted_count order by clinic_date desc, id desc))[1], 0) as critical_admitted_count,
-                   coalesce((array_agg(consultation_round order by clinic_date desc, id desc))[1], 0) as consultation_round,
-                   coalesce((array_agg(consultation_heat order by clinic_date desc, id desc))[1], 0) as consultation_heat,
-                   coalesce((array_agg(consultation_threshold order by clinic_date desc, id desc))[1], 0) as consultation_threshold,
-                   coalesce((array_agg(remaining_by_tier::text order by clinic_date desc, id desc))[1], '{{}}') as remaining_by_tier
-            from cabinet_ranked c
+        ), canonical_cabinet as (
+            select *
+            from cabinet_ranked
             where cabinet_rank = 1
+        ), cabinet_aggregate as (
+            select clinic_week_start,
+                   coalesce(sum(total_diagnoses), 0) as total_diagnoses,
+                   coalesce(sum(paid_ticket_count), 0) as paid_ticket_count,
+                   coalesce(sum(empty_attempt_count), 0) as empty_attempt_count,
+                   {depleted_at_select},
+                   coalesce(sum(critical_admitted_count), 0) as critical_admitted_count
+            from cabinet_ranked c
             group by clinic_week_start
+        ), cabinet_weekly as (
+            select c.clinic_week_start,
+                   coalesce(c.status::text, '') as status,
+                   coalesce(c.initial_total, 0) as initial_total,
+                   coalesce(c.remaining_total, 0) as cabinet_remaining_total,
+                   greatest(coalesce(c.initial_total, 0) - coalesce(a.total_diagnoses, 0), 0) as remaining_total,
+                   coalesce(a.total_diagnoses, 0) as total_diagnoses,
+                   coalesce(a.paid_ticket_count, 0) as paid_ticket_count,
+                   coalesce(a.empty_attempt_count, 0) as empty_attempt_count,
+                   coalesce(a.depleted_at, '') as depleted_at,
+                   coalesce(a.critical_admitted_count, 0) as critical_admitted_count,
+                   coalesce(c.consultation_round, 0) as consultation_round,
+                   coalesce(c.consultation_heat, 0) as consultation_heat,
+                   coalesce(c.consultation_threshold, 0) as consultation_threshold,
+                   coalesce(c.remaining_by_tier::text, '{{}}') as remaining_by_tier
+            from canonical_cabinet c
+            left join cabinet_aggregate a on a.clinic_week_start = c.clinic_week_start
         ), record_weekly as (
             select {cycle_start_expr} as clinic_week_start,
                    count(*) as diagnosis_count_from_record
@@ -1103,6 +1117,7 @@ def load_special_clinic_weekly_cabinet(conn):
                coalesce(c.status, '') as status,
                coalesce(c.initial_total, 0) as initial_total,
                coalesce(c.remaining_total, 0) as remaining_total,
+               coalesce(c.cabinet_remaining_total, 0) as cabinet_remaining_total,
                coalesce(c.total_diagnoses, 0) as total_diagnoses,
                coalesce(r.diagnosis_count_from_record, 0) as diagnosis_count_from_record,
                coalesce(c.paid_ticket_count, 0) as paid_ticket_count,
