@@ -837,6 +837,7 @@ def load_special_clinic_stats_from_prod():
                 "base_initial_total": latest_week.get("base_initial_total", 0),
                 "replenished_total": latest_week.get("replenished_total", 0),
                 "replenished_equivalent_cost": latest_week.get("replenished_equivalent_cost", 0),
+                "cycle_day": latest_week.get("cycle_day", 0),
                 "remaining_replenishment_cap": latest_week.get("remaining_replenishment_cap", 0),
                 "recent_2h_diagnoses": latest_week.get("recent_2h_diagnoses", 0),
                 "projected_remaining": latest_week.get("projected_remaining", 0),

@@ -94,6 +94,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("recent_2h_diagnoses", source)
         self.assertIn("estimated_replenishment_now", source)
         self.assertIn('"diagnosis_count": latest_week.get("diagnosis_count_from_record", 0)', source)
+        self.assertIn('"cycle_day": latest_week.get("cycle_day", 0)', source)
         self.assertIn("left join record_weekly", source)
 
     def test_dashboard_uses_weekly_cabinet_copy(self):
