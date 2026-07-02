@@ -823,6 +823,7 @@ def load_special_clinic_stats_from_prod():
         if weekly_cabinet:
             latest_week = weekly_cabinet[0]
             summary.update({
+                "diagnosis_count": latest_week.get("diagnosis_count_from_record", 0),
                 "latest_clinic_date": latest_week.get("clinic_date", ""),
                 "cabinet_status": latest_week.get("status", ""),
                 "initial_total": latest_week.get("initial_total", 0),
