@@ -1066,21 +1066,31 @@ def load_special_clinic_weekly_cabinet(conn):
                    {cycle_start_expr} as clinic_week_start
             from t_special_clinic_cabinet
             where clinic_date >= ((now() at time zone %s)::date - 55)
+        ), cabinet_ranked as (
+            select *,
+                   row_number() over (
+                       partition by clinic_week_start
+                       order by case when clinic_date = clinic_week_start then 0 else 1 end,
+                                clinic_date desc,
+                                id desc
+                   ) as cabinet_rank
+            from cabinet_recent
         ), cabinet_weekly as (
             select clinic_week_start,
                    (array_agg(status::text order by clinic_date desc, id desc))[1] as status,
-                   coalesce(sum(initial_total), 0) as initial_total,
-                   coalesce(sum(remaining_total), 0) as remaining_total,
-                   coalesce(sum(total_diagnoses), 0) as total_diagnoses,
-                   coalesce(sum(paid_ticket_count), 0) as paid_ticket_count,
-                   coalesce(sum(empty_attempt_count), 0) as empty_attempt_count,
+                   coalesce((array_agg(initial_total order by clinic_date desc, id desc))[1], 0) as initial_total,
+                   coalesce((array_agg(remaining_total order by clinic_date desc, id desc))[1], 0) as remaining_total,
+                   coalesce((array_agg(total_diagnoses order by clinic_date desc, id desc))[1], 0) as total_diagnoses,
+                   coalesce((array_agg(paid_ticket_count order by clinic_date desc, id desc))[1], 0) as paid_ticket_count,
+                   coalesce((array_agg(empty_attempt_count order by clinic_date desc, id desc))[1], 0) as empty_attempt_count,
                    {depleted_at_select},
-                   coalesce(sum(critical_admitted_count), 0) as critical_admitted_count,
+                   coalesce((array_agg(critical_admitted_count order by clinic_date desc, id desc))[1], 0) as critical_admitted_count,
                    coalesce((array_agg(consultation_round order by clinic_date desc, id desc))[1], 0) as consultation_round,
                    coalesce((array_agg(consultation_heat order by clinic_date desc, id desc))[1], 0) as consultation_heat,
                    coalesce((array_agg(consultation_threshold order by clinic_date desc, id desc))[1], 0) as consultation_threshold,
                    coalesce((array_agg(remaining_by_tier::text order by clinic_date desc, id desc))[1], '{{}}') as remaining_by_tier
-            from cabinet_recent c
+            from cabinet_ranked c
+            where cabinet_rank = 1
             group by clinic_week_start
         ), record_weekly as (
             select {cycle_start_expr} as clinic_week_start,

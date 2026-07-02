@@ -61,13 +61,13 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(row["consume_rate"], 30.0)
 
         weekly_row = app_module.add_special_clinic_supply_metrics({
-            "initial_total": 12000,
-            "total_diagnoses": 4179,
-            "remaining_total": 7821,
+            "initial_total": 6000,
+            "total_diagnoses": 3660,
+            "remaining_total": 2340,
         })
 
-        self.assertEqual(weekly_row["supply_total"], 12000)
-        self.assertEqual(weekly_row["consume_rate"], 34.83)
+        self.assertEqual(weekly_row["supply_total"], 6000)
+        self.assertEqual(weekly_row["consume_rate"], 61.0)
 
     def test_special_clinic_depleted_at_select_tolerates_missing_column(self):
         sql, params = app_module.special_clinic_depleted_at_select(False)
@@ -80,9 +80,11 @@ class AppContractTest(unittest.TestCase):
         source = Path("app/app.py").read_text(encoding="utf-8")
 
         self.assertIn("clinic_week_start", source)
-        self.assertIn("sum(initial_total)", source)
-        self.assertIn("sum(remaining_total)", source)
-        self.assertIn("sum(total_diagnoses)", source)
+        self.assertIn("cabinet_rank = 1", source)
+        self.assertIn("clinic_date = clinic_week_start", source)
+        self.assertIn("array_agg(initial_total order by clinic_date desc", source)
+        self.assertIn("array_agg(remaining_total order by clinic_date desc", source)
+        self.assertIn("array_agg(total_diagnoses order by clinic_date desc", source)
         self.assertIn("left join record_weekly", source)
 
     def test_dashboard_uses_weekly_cabinet_copy(self):
@@ -92,7 +94,7 @@ class AppContractTest(unittest.TestCase):
 
         self.assertIn("每周库存消耗", html)
         self.assertIn("周总量", html)
-        self.assertIn("本周剩余", html)
+        self.assertIn("最新剩余", html)
         self.assertIn("weeklyCabinet", html)
 
     def test_release_target_remains_ccnode(self):
