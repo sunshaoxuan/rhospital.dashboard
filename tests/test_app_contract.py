@@ -89,6 +89,10 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("coalesce(c.remaining_total, 0) as cabinet_remaining_total", source)
         self.assertIn("coalesce(sum(total_diagnoses), 0) as total_diagnoses", source)
         self.assertIn("greatest(coalesce(c.initial_total, 0) - coalesce(a.total_diagnoses, 0), 0) as remaining_total", source)
+        self.assertIn("coalesce(c.replenished_total, 0) as replenished_total", source)
+        self.assertIn("coalesce(c.last_replenish_hour_key, '') as last_replenish_hour_key", source)
+        self.assertIn("recent_2h_diagnoses", source)
+        self.assertIn("estimated_replenishment_now", source)
         self.assertIn("left join record_weekly", source)
 
     def test_dashboard_uses_weekly_cabinet_copy(self):
@@ -100,6 +104,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("周总量", html)
         self.assertIn("统计剩余", html)
         self.assertIn("柜体剩余", html)
+        self.assertIn("诊期补仓", html)
+        self.assertIn("当前触发补仓", html)
         self.assertIn("weeklyCabinet", html)
 
     def test_release_target_remains_ccnode(self):

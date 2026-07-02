@@ -833,6 +833,13 @@ def load_special_clinic_stats_from_prod():
                 "critical_admitted_count": latest_week.get("critical_admitted_count", 0),
                 "supply_total": latest_week.get("supply_total", 0),
                 "consume_rate": latest_week.get("consume_rate", 0),
+                "base_initial_total": latest_week.get("base_initial_total", 0),
+                "replenished_total": latest_week.get("replenished_total", 0),
+                "replenished_equivalent_cost": latest_week.get("replenished_equivalent_cost", 0),
+                "remaining_replenishment_cap": latest_week.get("remaining_replenishment_cap", 0),
+                "recent_2h_diagnoses": latest_week.get("recent_2h_diagnoses", 0),
+                "projected_remaining": latest_week.get("projected_remaining", 0),
+                "estimated_replenishment_now": latest_week.get("estimated_replenishment_now", 0),
             })
         return {
             "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
@@ -1093,6 +1100,7 @@ def load_special_clinic_weekly_cabinet(conn):
             select c.clinic_week_start,
                    coalesce(c.status::text, '') as status,
                    coalesce(c.initial_total, 0) as initial_total,
+                   greatest(coalesce(c.initial_total, 0) - coalesce(c.replenished_total, 0), 0) as base_initial_total,
                    coalesce(c.remaining_total, 0) as cabinet_remaining_total,
                    greatest(coalesce(c.initial_total, 0) - coalesce(a.total_diagnoses, 0), 0) as remaining_total,
                    coalesce(a.total_diagnoses, 0) as total_diagnoses,
@@ -1103,9 +1111,42 @@ def load_special_clinic_weekly_cabinet(conn):
                    coalesce(c.consultation_round, 0) as consultation_round,
                    coalesce(c.consultation_heat, 0) as consultation_heat,
                    coalesce(c.consultation_threshold, 0) as consultation_threshold,
-                   coalesce(c.remaining_by_tier::text, '{{}}') as remaining_by_tier
+                   coalesce(c.remaining_by_tier::text, '{{}}') as remaining_by_tier,
+                   coalesce(c.replenishment_policy_version, '') as replenishment_policy_version,
+                   coalesce(c.replenished_total, 0) as replenished_total,
+                   coalesce(c.replenished_equivalent_cost, 0) as replenished_equivalent_cost,
+                   coalesce(c.last_replenish_hour_key, '') as last_replenish_hour_key,
+                   coalesce(c.replenished_by_tier::text, '{{}}') as replenished_by_tier
             from canonical_cabinet c
             left join cabinet_aggregate a on a.clinic_week_start = c.clinic_week_start
+        ), policy_weekly as (
+            select *,
+                   greatest(((now() at time zone %s)::date - clinic_week_start) + 1, 0) as cycle_day,
+                   case greatest(((now() at time zone %s)::date - clinic_week_start) + 1, 0)
+                       when 1 then 0.35
+                       when 2 then 0.28
+                       when 3 then 0.21
+                       when 4 then 0.15
+                       when 5 then 0.09
+                       when 6 then 0.04
+                       else 0
+                   end as reserve_rate,
+                   case greatest(((now() at time zone %s)::date - clinic_week_start) + 1, 0)
+                       when 1 then 0.20
+                       when 2 then 0.15
+                       when 3 then 0.12
+                       when 4 then 0.08
+                       when 5 then 0.05
+                       when 6 then 0.03
+                       else 0
+                   end as max_replenishment_rate
+            from cabinet_weekly
+        ), recent_two_hours as (
+            select clinic_date as clinic_week_start,
+                   count(*) as recent_2h_diagnoses
+            from t_special_clinic_patient_record
+            where create_time >= (now() - interval '2 hours')
+            group by clinic_date
         ), record_weekly as (
             select {cycle_start_expr} as clinic_week_start,
                    count(*) as diagnosis_count_from_record
@@ -1116,6 +1157,7 @@ def load_special_clinic_weekly_cabinet(conn):
         select c.clinic_week_start::text as clinic_date,
                coalesce(c.status, '') as status,
                coalesce(c.initial_total, 0) as initial_total,
+               coalesce(c.base_initial_total, 0) as base_initial_total,
                coalesce(c.remaining_total, 0) as remaining_total,
                coalesce(c.cabinet_remaining_total, 0) as cabinet_remaining_total,
                coalesce(c.total_diagnoses, 0) as total_diagnoses,
@@ -1127,13 +1169,45 @@ def load_special_clinic_weekly_cabinet(conn):
                coalesce(c.consultation_round, 0) as consultation_round,
                coalesce(c.consultation_heat, 0) as consultation_heat,
                coalesce(c.consultation_threshold, 0) as consultation_threshold,
-               coalesce(c.remaining_by_tier, '{{}}') as remaining_by_tier
-        from cabinet_weekly c
+               coalesce(c.remaining_by_tier, '{{}}') as remaining_by_tier,
+               coalesce(c.replenishment_policy_version, '') as replenishment_policy_version,
+               coalesce(c.replenished_total, 0) as replenished_total,
+               coalesce(c.replenished_equivalent_cost, 0) as replenished_equivalent_cost,
+               coalesce(c.last_replenish_hour_key, '') as last_replenish_hour_key,
+               coalesce(c.replenished_by_tier, '{{}}') as replenished_by_tier,
+               coalesce(c.cycle_day, 0) as cycle_day,
+               coalesce(c.reserve_rate, 0) as reserve_rate,
+               coalesce(c.max_replenishment_rate, 0) as max_replenishment_rate,
+               ceil(greatest(c.base_initial_total, 1) * c.reserve_rate)::int as reserve_line,
+               ceil(greatest(c.base_initial_total, 1) * c.max_replenishment_rate)::int as max_replenishment,
+               greatest(ceil(greatest(c.base_initial_total, 1) * c.max_replenishment_rate)::int - coalesce(c.replenished_total, 0), 0) as remaining_replenishment_cap,
+               coalesce(recent.recent_2h_diagnoses, 0) as recent_2h_diagnoses,
+               ceil(coalesce(recent.recent_2h_diagnoses, 0) / 2.0 * 4)::int as forecast_4h_diagnoses,
+               coalesce(c.cabinet_remaining_total, 0) - ceil(coalesce(recent.recent_2h_diagnoses, 0) / 2.0 * 4)::int as projected_remaining,
+               ceil(greatest(c.base_initial_total, 1) * c.reserve_rate)::int
+                   - (coalesce(c.cabinet_remaining_total, 0) - ceil(coalesce(recent.recent_2h_diagnoses, 0) / 2.0 * 4)::int) as replenishment_need,
+               greatest(
+                   least(
+                       ceil(greatest(c.base_initial_total, 1) * c.reserve_rate)::int
+                           - (coalesce(c.cabinet_remaining_total, 0) - ceil(coalesce(recent.recent_2h_diagnoses, 0) / 2.0 * 4)::int),
+                       greatest(ceil(greatest(c.base_initial_total, 1) * c.max_replenishment_rate)::int - coalesce(c.replenished_total, 0), 0)
+                   ),
+                   0
+               ) as estimated_replenishment_now
+        from policy_weekly c
         left join record_weekly r on r.clinic_week_start = c.clinic_week_start
+        left join recent_two_hours recent on recent.clinic_week_start = c.clinic_week_start
         order by c.clinic_week_start desc
         limit 8
         """,
-        (SPECIAL_CLINIC_ZONE_ID, *depleted_at_params, SPECIAL_CLINIC_ZONE_ID),
+        (
+            SPECIAL_CLINIC_ZONE_ID,
+            *depleted_at_params,
+            SPECIAL_CLINIC_ZONE_ID,
+            SPECIAL_CLINIC_ZONE_ID,
+            SPECIAL_CLINIC_ZONE_ID,
+            SPECIAL_CLINIC_ZONE_ID,
+        ),
     )
     for row in rows:
         add_special_clinic_supply_metrics(row)

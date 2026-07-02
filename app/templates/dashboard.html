@@ -301,6 +301,7 @@
             <div class="card"><div class="label">付费票看病</div><div class="value" id="clinicPaidDiagnoses">-</div><div class="hint">使用元宝补诊票确诊</div></div>
             <div class="card"><div class="label">购票元宝成本</div><div class="value" id="clinicIngotCost">-</div><div class="hint" id="clinicTicketHint">-</div></div>
             <div class="card"><div class="label">周库存消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
+            <div class="card"><div class="label">诊期补仓</div><div class="value" id="clinicReplenishedTotal">-</div><div class="hint" id="clinicReplenishmentHint">-</div></div>
             <div class="card"><div class="label">风险提示次数</div><div class="value" id="clinicAlertCount">-</div><div class="hint">无票、空柜、结诊、购票上限、未开放包和元宝不足</div></div>
         </section>
 
@@ -328,7 +329,7 @@
             </div>
             <div class="panel wide">
                 <h2>每周库存消耗</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>本周已诊</th><th>消耗率</th><th>统计剩余</th><th>柜体剩余</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>本周已诊</th><th>消耗率</th><th>统计剩余</th><th>柜体剩余</th><th>周期日</th><th>补仓基数</th><th>累计补仓</th><th>补仓成本</th><th>补仓上限</th><th>近2小时</th><th>预测剩余</th><th>当前触发补仓</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>医院行为 Top 30</h2>
@@ -540,6 +541,8 @@
         setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
         setText('clinicConsumeRate', `${formatMoney(s.consume_rate)}%`);
         setText('clinicCabinetHint', `${s.cabinet_status || '-'}，本周已诊 ${formatNumber(s.total_diagnoses)} / 周总量 ${formatNumber(s.supply_total)}，统计剩余 ${formatNumber(s.remaining_total)}`);
+        setText('clinicReplenishedTotal', formatNumber(s.replenished_total));
+        setText('clinicReplenishmentHint', `第 ${formatNumber(s.cycle_day)} 天，剩余上限 ${formatNumber(s.remaining_replenishment_cap)}，预测剩余 ${formatNumber(s.projected_remaining)}，当前触发 ${formatNumber(s.estimated_replenishment_now)}`);
         setText('clinicAlertCount', formatNumber(alertTotal));
         renderSpecialClinicCharts(data);
         renderSimpleRows('clinicTierRows', data.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
@@ -549,7 +552,7 @@
         renderSimpleRows('clinicRewardRows', data.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
         renderSimpleRows('clinicResourceRows', data.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicPatientRows', data.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
-        renderSimpleRows('clinicCabinetRows', data.weeklyCabinet || data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`});
+        renderSimpleRows('clinicCabinetRows', data.weeklyCabinet || data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'cycle_day', 'base_initial_total', 'replenished_total', 'replenished_equivalent_cost', 'remaining_replenishment_cap', 'recent_2h_diagnoses', 'projected_remaining', 'estimated_replenishment_now', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`, replenished_equivalent_cost: value => formatMoney(value)});
         renderSimpleRows('clinicHospitalRows', data.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
     }
 
