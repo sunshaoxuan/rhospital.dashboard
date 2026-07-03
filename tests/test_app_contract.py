@@ -50,6 +50,9 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("'prestige_reward'", html)
         self.assertIn("yAxisID: 'money'", html)
 
+    def test_special_clinic_prescription_page_item_name_is_mapped(self):
+        self.assertEqual(app_module.SPECIAL_CLINIC_ITEM_NAMES[1351], "荣光病志残页")
+
     def test_special_clinic_supply_metrics_use_weekly_consumption_numerator(self):
         row = app_module.add_special_clinic_supply_metrics({
             "initial_total": 100,
