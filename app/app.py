@@ -20,6 +20,7 @@ QUERY_TIMEOUT_SECONDS = int(os.getenv("OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS", "10
 STAT_TABLE_PAGE_SIZES = {20, 50, 100}
 STAT_TABLE_TABS = {"items", "money", "yuanbao", "prestige", "guild", "registrants"}
 SPECIAL_CLINIC_ZONE_ID = "Asia/Shanghai"
+SPECIAL_CLINIC_WEEK_TAB_LIMIT = 8
 SPECIAL_CLINIC_ITEM_NAMES = {
     1222: "广告牌I",
     1327: "聪明胶囊",
@@ -154,6 +155,74 @@ def special_clinic_depleted_at_select(has_depleted_at):
             (SPECIAL_CLINIC_ZONE_ID,),
         )
     return "'' as depleted_at", ()
+
+
+def special_clinic_cycle_start_expr(column_name="clinic_date"):
+    return f"({column_name} - (((extract(dow from {column_name})::int + 4) %% 7) * interval '1 day'))::date"
+
+
+def special_clinic_cycle_filter(column_name="clinic_date", week_start=None):
+    if week_start:
+        return f"{special_clinic_cycle_start_expr(column_name)} = %s::date", (week_start,)
+    return f"{column_name} >= ((now() at time zone %s)::date - 13)", (SPECIAL_CLINIC_ZONE_ID,)
+
+
+def special_clinic_time_filter(column_name="create_time", week_start=None):
+    local_date_expr = f"({column_name} at time zone 'UTC' at time zone %s)::date"
+    if week_start:
+        return (
+            f"{local_date_expr} >= %s::date and {local_date_expr} < (%s::date + interval '7 day')",
+            (SPECIAL_CLINIC_ZONE_ID, week_start, SPECIAL_CLINIC_ZONE_ID, week_start),
+        )
+    return f"{local_date_expr} >= ((now() at time zone %s)::date - 13)", (
+        SPECIAL_CLINIC_ZONE_ID,
+        SPECIAL_CLINIC_ZONE_ID,
+    )
+
+
+def special_clinic_week_meta(cabinet_row, index):
+    week_start = str(cabinet_row.get("clinic_date") or "")
+    short_start = week_start[5:] if len(week_start) >= 10 else week_start
+    prefix = "本周" if index == 0 else "上周" if index == 1 else f"前{index}周"
+    range_label = week_start
+    try:
+        start_date = datetime.strptime(week_start, "%Y-%m-%d")
+        end_date = start_date + timedelta(days=6)
+        range_label = f"{start_date.strftime('%m-%d')} 至 {end_date.strftime('%m-%d')}"
+    except ValueError:
+        pass
+    return {
+        "key": week_start,
+        "clinic_date": week_start,
+        "label": f"{prefix} {short_start}".strip(),
+        "range_label": range_label,
+        "index": index,
+    }
+
+
+def apply_special_clinic_week_summary(summary, cabinet_row):
+    summary.update({
+        "diagnosis_count": cabinet_row.get("diagnosis_count_from_record", summary.get("diagnosis_count", 0)),
+        "latest_clinic_date": cabinet_row.get("clinic_date", ""),
+        "cabinet_status": cabinet_row.get("status", ""),
+        "initial_total": cabinet_row.get("initial_total", 0),
+        "remaining_total": cabinet_row.get("remaining_total", 0),
+        "cabinet_remaining_total": cabinet_row.get("cabinet_remaining_total", 0),
+        "total_diagnoses": cabinet_row.get("total_diagnoses", 0),
+        "empty_attempt_count": cabinet_row.get("empty_attempt_count", 0),
+        "critical_admitted_count": cabinet_row.get("critical_admitted_count", 0),
+        "supply_total": cabinet_row.get("supply_total", 0),
+        "consume_rate": cabinet_row.get("consume_rate", 0),
+        "base_initial_total": cabinet_row.get("base_initial_total", 0),
+        "replenished_total": cabinet_row.get("replenished_total", 0),
+        "replenished_equivalent_cost": cabinet_row.get("replenished_equivalent_cost", 0),
+        "cycle_day": cabinet_row.get("cycle_day", 0),
+        "remaining_replenishment_cap": cabinet_row.get("remaining_replenishment_cap", 0),
+        "recent_2h_diagnoses": cabinet_row.get("recent_2h_diagnoses", 0),
+        "projected_remaining": cabinet_row.get("projected_remaining", 0),
+        "estimated_replenishment_now": cabinet_row.get("estimated_replenishment_now", 0),
+    })
+    return summary
 
 
 def major_amount(value):
@@ -811,42 +880,34 @@ def merge_snapshot_history(stats):
 
 def load_special_clinic_stats_from_prod():
     with prod_connection() as conn:
-        hourly_summary = load_special_clinic_hourly_summary(conn)
-        tier_distribution = load_special_clinic_tier_distribution(conn)
-        patient_distribution = load_special_clinic_patient_distribution(conn)
-        reward_items = load_special_clinic_reward_items(conn)
-        resource_rewards = load_special_clinic_resource_rewards(conn)
-        ticket_flows = load_special_clinic_ticket_flows(conn)
         weekly_cabinet = load_special_clinic_weekly_cabinet(conn)
-        hospital_daily = load_special_clinic_hospital_daily(conn)
-        audit_checks = load_special_clinic_audit_checks(conn)
-        summary = load_special_clinic_summary(conn)
-        if weekly_cabinet:
-            latest_week = weekly_cabinet[0]
-            summary.update({
-                "diagnosis_count": latest_week.get("diagnosis_count_from_record", 0),
-                "latest_clinic_date": latest_week.get("clinic_date", ""),
-                "cabinet_status": latest_week.get("status", ""),
-                "initial_total": latest_week.get("initial_total", 0),
-                "remaining_total": latest_week.get("remaining_total", 0),
-                "cabinet_remaining_total": latest_week.get("cabinet_remaining_total", 0),
-                "total_diagnoses": latest_week.get("total_diagnoses", 0),
-                "empty_attempt_count": latest_week.get("empty_attempt_count", 0),
-                "critical_admitted_count": latest_week.get("critical_admitted_count", 0),
-                "supply_total": latest_week.get("supply_total", 0),
-                "consume_rate": latest_week.get("consume_rate", 0),
-                "base_initial_total": latest_week.get("base_initial_total", 0),
-                "replenished_total": latest_week.get("replenished_total", 0),
-                "replenished_equivalent_cost": latest_week.get("replenished_equivalent_cost", 0),
-                "cycle_day": latest_week.get("cycle_day", 0),
-                "remaining_replenishment_cap": latest_week.get("remaining_replenishment_cap", 0),
-                "recent_2h_diagnoses": latest_week.get("recent_2h_diagnoses", 0),
-                "projected_remaining": latest_week.get("projected_remaining", 0),
-                "estimated_replenishment_now": latest_week.get("estimated_replenishment_now", 0),
-            })
+        weekly_pages = load_special_clinic_weekly_pages(conn, weekly_cabinet)
+        if weekly_pages:
+            latest_page = dict(weekly_pages[0])
+            summary = latest_page["summary"]
+            hourly_summary = latest_page["hourlySummary"]
+            tier_distribution = latest_page["tierDistribution"]
+            patient_distribution = latest_page["patientDistribution"]
+            reward_items = latest_page["rewardItems"]
+            resource_rewards = latest_page["resourceRewards"]
+            ticket_flows = latest_page["ticketFlows"]
+            hospital_daily = latest_page["hospitalDaily"]
+            audit_checks = latest_page["auditChecks"]
+        else:
+            summary = load_special_clinic_summary(conn)
+            hourly_summary = load_special_clinic_hourly_summary(conn)
+            tier_distribution = load_special_clinic_tier_distribution(conn)
+            patient_distribution = load_special_clinic_patient_distribution(conn)
+            reward_items = load_special_clinic_reward_items(conn)
+            resource_rewards = load_special_clinic_resource_rewards(conn)
+            ticket_flows = load_special_clinic_ticket_flows(conn)
+            hospital_daily = load_special_clinic_hospital_daily(conn)
+            audit_checks = load_special_clinic_audit_checks(conn)
         return {
             "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
             "zoneId": SPECIAL_CLINIC_ZONE_ID,
+            "weekOptions": [page["week"] for page in weekly_pages],
+            "weeklyPages": weekly_pages,
             "summary": summary,
             "hourlySummary": hourly_summary,
             "tierDistribution": tier_distribution,
@@ -861,21 +922,53 @@ def load_special_clinic_stats_from_prod():
         }
 
 
-def load_special_clinic_summary(conn):
+def load_special_clinic_weekly_pages(conn, weekly_cabinet):
+    pages = []
+    for index, cabinet_row in enumerate(weekly_cabinet[:SPECIAL_CLINIC_WEEK_TAB_LIMIT]):
+        week_start = cabinet_row.get("clinic_date")
+        if not week_start:
+            continue
+        summary = load_special_clinic_summary(conn, week_start)
+        apply_special_clinic_week_summary(summary, cabinet_row)
+        pages.append({
+            "week": special_clinic_week_meta(cabinet_row, index),
+            "summary": summary,
+            "hourlySummary": load_special_clinic_hourly_summary(conn, week_start),
+            "tierDistribution": load_special_clinic_tier_distribution(conn, week_start),
+            "patientDistribution": load_special_clinic_patient_distribution(conn, week_start),
+            "rewardItems": load_special_clinic_reward_items(conn, week_start),
+            "resourceRewards": load_special_clinic_resource_rewards(conn, week_start),
+            "ticketFlows": load_special_clinic_ticket_flows(conn, week_start),
+            "weeklyCabinet": [cabinet_row],
+            "dailyCabinet": [cabinet_row],
+            "hospitalDaily": load_special_clinic_hospital_daily(conn, week_start),
+            "auditChecks": load_special_clinic_audit_checks(conn, week_start),
+        })
+    return pages
+
+
+def load_special_clinic_summary(conn, week_start=None):
+    record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
+    ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+    cabinet_where, cabinet_params = (
+        f"where {special_clinic_cycle_start_expr('clinic_date')} = %s::date",
+        (week_start,),
+    ) if week_start else ("", ())
     row = query_one(
         conn,
-        """
+        f"""
         with r as (
             select *
             from t_special_clinic_patient_record
-            where clinic_date >= ((now() at time zone %s)::date - 13)
+            where {record_where}
         ), t as (
             select *
             from t_special_clinic_ticket_log
-            where clinic_date >= ((now() at time zone %s)::date - 13)
+            where {ticket_where}
         ), c as (
             select *
             from t_special_clinic_cabinet
+            {cabinet_where}
             order by clinic_date desc, id desc
             limit 1
         )
@@ -898,7 +991,7 @@ def load_special_clinic_summary(conn):
             coalesce((select empty_attempt_count from c), 0) as empty_attempt_count,
             coalesce((select critical_admitted_count from c), 0) as critical_admitted_count
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+        (*record_params, *ticket_params, *cabinet_params),
     )
     return add_special_clinic_supply_metrics(row)
 
@@ -912,10 +1005,12 @@ def add_special_clinic_supply_metrics(row):
     return row
 
 
-def load_special_clinic_hourly_summary(conn):
+def load_special_clinic_hourly_summary(conn, week_start=None):
+    record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
+    ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
     return query_list(
         conn,
-        """
+        f"""
         with record_hourly as (
             select date_trunc('hour', create_time at time zone 'UTC' at time zone %s) as hour_bucket,
                    count(*) as diagnosis_count,
@@ -928,7 +1023,7 @@ def load_special_clinic_hourly_summary(conn):
                    coalesce(sum(prestige_reward), 0) as prestige_reward,
                    coalesce(sum(glory_reward), 0) as glory_reward
             from t_special_clinic_patient_record
-            where clinic_date >= ((now() at time zone %s)::date - 13)
+            where {record_where}
             group by hour_bucket
         ), ticket_hourly as (
             select date_trunc('hour', create_time at time zone 'UTC' at time zone %s) as hour_bucket,
@@ -938,7 +1033,7 @@ def load_special_clinic_hourly_summary(conn):
                    coalesce(sum(paid_delta) filter (where paid_delta > 0 and change_type = 'PURCHASE'), 0) as paid_ticket_purchased,
                    coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
             from t_special_clinic_ticket_log
-            where clinic_date >= ((now() at time zone %s)::date - 13)
+            where {ticket_where}
             group by hour_bucket
         )
         select to_char(coalesce(r.hour_bucket, t.hour_bucket), 'MM-DD HH24:00') as label,
@@ -960,31 +1055,33 @@ def load_special_clinic_hourly_summary(conn):
         full outer join ticket_hourly t on t.hour_bucket = r.hour_bucket
         order by coalesce(r.hour_bucket, t.hour_bucket)
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+        (SPECIAL_CLINIC_ZONE_ID, *record_params, SPECIAL_CLINIC_ZONE_ID, *ticket_params),
     )
 
 
-def load_special_clinic_tier_distribution(conn):
+def load_special_clinic_tier_distribution(conn, week_start=None):
+    where_clause, params = special_clinic_cycle_filter("clinic_date", week_start)
     return query_list(
         conn,
-        """
+        f"""
         select coalesce(tier, 'UNKNOWN') as tier,
                count(*) as diagnosis_count,
                count(distinct hospital_id) as hospital_count,
                count(*) filter (where ticket_type_used = 'PAID') as paid_ticket_count
         from t_special_clinic_patient_record
-        where clinic_date >= ((now() at time zone %s)::date - 13)
+        where {where_clause}
         group by coalesce(tier, 'UNKNOWN')
         order by diagnosis_count desc, tier
         """,
-        (SPECIAL_CLINIC_ZONE_ID,),
+        params,
     )
 
 
-def load_special_clinic_patient_distribution(conn):
+def load_special_clinic_patient_distribution(conn, week_start=None):
+    where_clause, params = special_clinic_cycle_filter("clinic_date", week_start)
     return query_list(
         conn,
-        """
+        f"""
         select coalesce(patient_code, '') as patient_code,
                coalesce(patient_name, '') as patient_name,
                coalesce(tier, 'UNKNOWN') as tier,
@@ -992,40 +1089,42 @@ def load_special_clinic_patient_distribution(conn):
                count(distinct hospital_id) as hospital_count,
                count(*) filter (where ticket_type_used = 'PAID') as paid_ticket_count
         from t_special_clinic_patient_record
-        where clinic_date >= ((now() at time zone %s)::date - 13)
+        where {where_clause}
         group by patient_code, patient_name, tier
         order by diagnosis_count desc, paid_ticket_count desc, patient_name
         limit 40
         """,
-        (SPECIAL_CLINIC_ZONE_ID,),
+        params,
     )
 
 
-def load_special_clinic_reward_items(conn):
+def load_special_clinic_reward_items(conn, week_start=None):
+    where_clause, params = special_clinic_cycle_filter("r.clinic_date", week_start)
     rows = query_list(
         conn,
-        """
+        f"""
         select e.key::bigint as item_id,
                coalesce(sum(e.value::int), 0) as item_count,
                count(*) as record_count,
                count(distinct r.hospital_id) as hospital_count
         from t_special_clinic_patient_record r
-        cross join lateral jsonb_each_text(coalesce(r.reward_items, '{}'::jsonb)) e
-        where r.clinic_date >= ((now() at time zone %s)::date - 13)
+        cross join lateral jsonb_each_text(coalesce(r.reward_items, '{{}}'::jsonb)) e
+        where {where_clause}
         group by e.key::bigint
         order by item_count desc, record_count desc, item_id
         """,
-        (SPECIAL_CLINIC_ZONE_ID,),
+        params,
     )
     for row in rows:
         row["item_name"] = SPECIAL_CLINIC_ITEM_NAMES.get(int(row["item_id"]), f"道具 {row['item_id']}")
     return rows
 
 
-def load_special_clinic_resource_rewards(conn):
+def load_special_clinic_resource_rewards(conn, week_start=None):
+    where_clause, params = special_clinic_cycle_filter("clinic_date", week_start)
     return query_list(
         conn,
-        """
+        f"""
         select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
                coalesce(sum(temporary_patients), 0) as temporary_patients,
                coalesce(sum(ingot_reward), 0) as ingot_reward,
@@ -1033,18 +1132,19 @@ def load_special_clinic_resource_rewards(conn):
                coalesce(sum(prestige_reward), 0) as prestige_reward,
                coalesce(sum(glory_reward), 0) as glory_reward
         from t_special_clinic_patient_record
-        where clinic_date >= ((now() at time zone %s)::date - 13)
+        where {where_clause}
         group by label
         order by min(create_time)
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+        (SPECIAL_CLINIC_ZONE_ID, *params),
     )
 
 
-def load_special_clinic_ticket_flows(conn):
+def load_special_clinic_ticket_flows(conn, week_start=None):
+    where_clause, params = special_clinic_cycle_filter("clinic_date", week_start)
     return query_list(
         conn,
-        """
+        f"""
         select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
                coalesce(change_type, 'UNKNOWN') as change_type,
                coalesce(reason, '') as reason,
@@ -1055,12 +1155,12 @@ def load_special_clinic_ticket_flows(conn):
                count(*) as row_count,
                count(distinct hospital_id) as hospital_count
         from t_special_clinic_ticket_log
-        where clinic_date >= ((now() at time zone %s)::date - 13)
+        where {where_clause}
         group by label, change_type, reason
         order by min(create_time) desc, row_count desc
         limit 60
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+        (SPECIAL_CLINIC_ZONE_ID, *params),
     )
 
 
@@ -1068,7 +1168,7 @@ def load_special_clinic_weekly_cabinet(conn):
     depleted_at_select, depleted_at_params = special_clinic_depleted_at_select(
         column_exists(conn, "t_special_clinic_cabinet", "depleted_at")
     )
-    cycle_start_expr = "(clinic_date - (((extract(dow from clinic_date)::int + 4) %% 7) * interval '1 day'))::date"
+    cycle_start_expr = special_clinic_cycle_start_expr("clinic_date")
     rows = query_list(
         conn,
         f"""
@@ -1217,20 +1317,24 @@ def load_special_clinic_weekly_cabinet(conn):
     return rows
 
 
-def load_special_clinic_hospital_daily(conn):
+def load_special_clinic_hospital_daily(conn, week_start=None):
+    patient_where, patient_params = special_clinic_cycle_filter("r.clinic_date", week_start)
+    ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
     return query_list(
         conn,
-        """
+        f"""
         with reward_item_summary as (
             select r.hospital_id, r.clinic_date, coalesce(sum(e.value::int), 0) as reward_item_count
             from t_special_clinic_patient_record r
-            cross join lateral jsonb_each_text(coalesce(r.reward_items, '{}'::jsonb)) e
+            cross join lateral jsonb_each_text(coalesce(r.reward_items, '{{}}'::jsonb)) e
+            where {patient_where}
             group by r.hospital_id, r.clinic_date
         ), ticket_purchase as (
             select hospital_id, clinic_date,
                    coalesce(sum(paid_delta) filter (where paid_delta > 0 and change_type = 'PURCHASE'), 0) as ticket_purchase_count,
                    coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
             from t_special_clinic_ticket_log
+            where {ticket_where}
             group by hospital_id, clinic_date
         )
         select r.hospital_id,
@@ -1250,36 +1354,46 @@ def load_special_clinic_hospital_daily(conn):
         left join t_hospitals h on h.id = r.hospital_id
         left join reward_item_summary i on i.hospital_id = r.hospital_id and i.clinic_date = r.clinic_date
         left join ticket_purchase t on t.hospital_id = r.hospital_id and t.clinic_date = r.clinic_date
-        where r.clinic_date >= ((now() at time zone %s)::date - 13)
+        where {patient_where}
         group by r.hospital_id, h.hospital_name, h.director_name, r.clinic_date
         order by diagnosis_count desc, paid_diagnosis_count desc, ingot_cost desc, r.hospital_id
         limit 30
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+        (
+            *patient_params,
+            *ticket_params,
+            SPECIAL_CLINIC_ZONE_ID,
+            SPECIAL_CLINIC_ZONE_ID,
+            *patient_params,
+        ),
     )
 
 
-def load_special_clinic_audit_checks(conn):
+def load_special_clinic_audit_checks(conn, week_start=None):
+    patient_where, patient_params = special_clinic_cycle_filter("clinic_date", week_start)
+    ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+    yuanbao_where, yuanbao_params = special_clinic_time_filter("create_time", week_start)
+    prompt_where, prompt_params = special_clinic_time_filter("create_time", week_start)
     row = query_one(
         conn,
-        """
+        f"""
         with patient as (
             select count(*) as diagnosis_count,
                    coalesce(sum((reward_items ->> '1792')::int), 0) as reward_ticket_from_records,
                    coalesce(sum(ingot_reward), 0) as ingot_reward_from_records
             from t_special_clinic_patient_record
-            where clinic_date >= ((now() at time zone %s)::date - 13)
+            where {patient_where}
         ), ticket as (
             select count(*) filter (where change_type = 'CONSUME') as ticket_consume_rows,
                    coalesce(sum(appointment_delta) filter (where reason = '特需诊断药方奖励门诊票'), 0) as reward_ticket_from_logs,
                    coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost_from_ticket_log
             from t_special_clinic_ticket_log
-            where clinic_date >= ((now() at time zone %s)::date - 13)
+            where {ticket_where}
         ), yuanbao as (
             select coalesce(sum(greatest(old_value - new_value, 0)) filter (where reason like '特需门诊元宝补诊%%'), 0) as ingot_cost_from_yuanbao_log,
                    coalesce(sum(greatest(new_value - old_value, 0)) filter (where reason = '特需门诊确诊奖励'), 0) as ingot_reward_from_yuanbao_log
             from t_log_yuanbao
-            where (create_time at time zone 'UTC' at time zone %s)::date >= ((now() at time zone %s)::date - 13)
+            where {yuanbao_where}
         ), balance_diff as (
             select count(*) as mismatch_count
             from t_special_clinic_player_state s
@@ -1295,12 +1409,12 @@ def load_special_clinic_audit_checks(conn):
                 count(*) filter (where content like '%%该补诊包暂未开放购买%%') as unopened_package_count,
                 count(*) filter (where content like '%%元宝不足%%') as insufficient_ingot_count
             from t_log_right_bottom
-            where (create_time at time zone 'UTC' at time zone %s)::date >= ((now() at time zone %s)::date - 13)
+            where {prompt_where}
         )
         select *
         from patient, ticket, yuanbao, balance_diff, prompt
         """,
-        (SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID, SPECIAL_CLINIC_ZONE_ID),
+        (*patient_params, *ticket_params, *yuanbao_params, *prompt_params),
     )
     checks = [
         {
@@ -1393,6 +1507,8 @@ def load_unavailable_special_clinic_stats(error: Exception):
         "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
         "zoneId": SPECIAL_CLINIC_ZONE_ID,
         "sourceError": str(error),
+        "weekOptions": [],
+        "weeklyPages": [],
         "summary": {},
         "hourlySummary": [],
         "tierDistribution": [],

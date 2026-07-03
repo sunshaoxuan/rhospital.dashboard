@@ -78,6 +78,10 @@
             min-width: 72px;
         }
         .tab-btn.active { border-color: rgba(72, 213, 151, 0.68); background: rgba(72, 213, 151, 0.18); }
+        .clinic-week-tabs { margin: 0 0 16px; }
+        .clinic-week-btn { min-width: 112px; padding: 8px 12px; text-align: left; }
+        .clinic-week-btn span { display: block; line-height: 1.25; }
+        .clinic-week-btn .week-range { margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 500; }
         .page-section[hidden] { display: none; }
         .clinic-table table { min-width: 0; }
         .wide-clinic-table table { min-width: 1160px; }
@@ -295,18 +299,19 @@
     </section>
 
     <section id="specialClinicPage" class="page-section" hidden>
+        <div class="tabs clinic-week-tabs" id="clinicWeekTabs" role="tablist" aria-label="特需门诊周期开诊周"></div>
         <section class="cards clinic-summary-grid">
-            <div class="card"><div class="label">成功特需诊断</div><div class="value" id="clinicDiagnoses">-</div><div class="hint">近14日确诊记录数</div></div>
-            <div class="card"><div class="label">参与医院</div><div class="value" id="clinicHospitals">-</div><div class="hint">发生确诊的医院数</div></div>
-            <div class="card"><div class="label">付费票看病</div><div class="value" id="clinicPaidDiagnoses">-</div><div class="hint">使用元宝补诊票确诊</div></div>
+            <div class="card"><div class="label">成功特需诊断</div><div class="value" id="clinicDiagnoses">-</div><div class="hint">选中周期确诊记录数</div></div>
+            <div class="card"><div class="label">参与医院</div><div class="value" id="clinicHospitals">-</div><div class="hint">选中周期发生确诊的医院数</div></div>
+            <div class="card"><div class="label">付费票看病</div><div class="value" id="clinicPaidDiagnoses">-</div><div class="hint">选中周期使用元宝补诊票确诊</div></div>
             <div class="card"><div class="label">购票元宝成本</div><div class="value" id="clinicIngotCost">-</div><div class="hint" id="clinicTicketHint">-</div></div>
             <div class="card"><div class="label">周库存消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
             <div class="card"><div class="label">诊期补仓</div><div class="value" id="clinicReplenishedTotal">-</div><div class="hint" id="clinicReplenishmentHint">-</div></div>
-            <div class="card"><div class="label">风险提示次数</div><div class="value" id="clinicAlertCount">-</div><div class="hint">无票、空柜、结诊、购票上限、未开放包和元宝不足</div></div>
+            <div class="card"><div class="label">风险提示次数</div><div class="value" id="clinicAlertCount">-</div><div class="hint">选中周期无票、空柜、结诊、购票上限、未开放包和元宝不足</div></div>
         </section>
 
         <section class="grid">
-            <div class="panel"><h2>每小时特需诊断与购票</h2><div class="chart-box"><canvas id="clinicHourlyChart"></canvas></div><div class="note">时间口径使用北京时间小时桶。</div></div>
+            <div class="panel"><h2>每小时特需诊断与购票</h2><div class="chart-box"><canvas id="clinicHourlyChart"></canvas></div><div class="note">时间口径使用北京时间小时桶，按选中周三周期。</div></div>
             <div class="panel"><h2>病历等级分布</h2><div class="chart-box"><canvas id="clinicTierChart"></canvas></div><div class="table-scroll clinic-table"><table><thead><tr><th>等级</th><th>确诊</th><th>医院</th><th>付费票</th></tr></thead><tbody id="clinicTierRows"></tbody></table></div></div>
             <div class="panel"><h2>道具奖品发放 Top 12</h2><div class="chart-box"><canvas id="clinicRewardItemChart"></canvas></div><div class="note">道具奖品来自确诊记录 reward_items。</div></div>
             <div class="panel"><h2>主账资源发放，按小时</h2><div class="chart-box"><canvas id="clinicResourceChart"></canvas></div><div class="note">资源来自确诊记录主账，金钱使用右轴。</div></div>
@@ -359,10 +364,18 @@
     const renderState = {};
     let currentPage = 'overall';
     const statTableState = {tab: 'items', page: 1, pageSize: 20, total: 0};
+    const specialClinicState = {data: null, selectedWeekKey: null, latestWeekKey: null, userSelectedWeek: false};
 
     document.getElementById('refreshBtn').addEventListener('click', refreshCurrentPage);
     document.querySelectorAll('[data-page-tab]').forEach(button => {
         button.addEventListener('click', () => switchPage(button.dataset.pageTab));
+    });
+    document.getElementById('clinicWeekTabs').addEventListener('click', event => {
+        const button = event.target.closest('[data-clinic-week]');
+        if (!button || !specialClinicState.data) return;
+        specialClinicState.selectedWeekKey = button.dataset.clinicWeek;
+        specialClinicState.userSelectedWeek = true;
+        renderSpecialClinic(specialClinicState.data);
     });
     document.getElementById('itemModalClose').addEventListener('click', closeItemModal);
     document.querySelectorAll('[data-stat-tab]').forEach(button => {
@@ -521,19 +534,62 @@
         }, {indexAxis: 'y'});
     }
 
+    function getSpecialClinicPages(data) {
+        return Array.isArray(data.weeklyPages) && data.weeklyPages.length ? data.weeklyPages : [data];
+    }
+
+    function resolveSpecialClinicView(data) {
+        const pages = getSpecialClinicPages(data);
+        const latestKey = pages[0]?.week?.key || '';
+        const hasSelected = pages.some(page => page.week?.key === specialClinicState.selectedWeekKey);
+        if (!specialClinicState.selectedWeekKey || !hasSelected || (!specialClinicState.userSelectedWeek && specialClinicState.latestWeekKey !== latestKey)) {
+            specialClinicState.selectedWeekKey = latestKey;
+        }
+        specialClinicState.latestWeekKey = latestKey;
+        return pages.find(page => page.week?.key === specialClinicState.selectedWeekKey) || pages[0] || data;
+    }
+
+    function renderSpecialClinicWeekTabs(data, selectedKey) {
+        const container = document.getElementById('clinicWeekTabs');
+        const pages = Array.isArray(data.weeklyPages) ? data.weeklyPages : [];
+        container.innerHTML = '';
+        container.hidden = pages.length === 0;
+        pages.forEach(page => {
+            const week = page.week || {};
+            const key = week.key || '';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `tab-btn clinic-week-btn${key === selectedKey ? ' active' : ''}`;
+            button.dataset.clinicWeek = key;
+            button.innerHTML = `<span>${escapeHtml(week.label || key || '-')}</span><span class="week-range">${escapeHtml(week.range_label || key || '-')}</span>`;
+            container.appendChild(button);
+        });
+    }
+
     function renderSpecialClinic(data) {
-        const signature = stableStringify(data);
+        specialClinicState.data = data;
+        const view = resolveSpecialClinicView(data);
+        const signature = stableStringify({
+            selectedWeekKey: specialClinicState.selectedWeekKey,
+            generatedAt: data.generatedAt,
+            zoneId: data.zoneId,
+            sourceError: data.sourceError || '',
+            weekOptions: data.weekOptions || [],
+            view,
+        });
         if (renderState.specialClinicSignature === signature) return;
         renderState.specialClinicSignature = signature;
+        renderSpecialClinicWeekTabs(data, specialClinicState.selectedWeekKey);
         if (data.sourceError) {
             const error = document.getElementById('error');
             error.textContent = `特需门诊数据源暂不可用：${data.sourceError}`;
             error.style.display = 'block';
         }
-        const s = data.summary || {};
-        const audit = data.auditChecks || {checks: [], alerts: []};
+        const s = view.summary || {};
+        const week = view.week || {};
+        const audit = view.auditChecks || {checks: [], alerts: []};
         const alertTotal = (audit.alerts || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
-        setText('generatedAt', `更新时间 ${formatDateTime(data.generatedAt)}，特需门诊时区 ${data.zoneId || '-'}`);
+        setText('generatedAt', `更新时间 ${formatDateTime(data.generatedAt)}，特需门诊时区 ${data.zoneId || '-'}，周期 ${week.range_label || s.latest_clinic_date || '-'}`);
         setText('clinicDiagnoses', formatNumber(s.diagnosis_count));
         setText('clinicHospitals', formatNumber(s.active_hospital_count));
         setText('clinicPaidDiagnoses', formatNumber(s.paid_diagnosis_count));
@@ -544,16 +600,16 @@
         setText('clinicReplenishedTotal', formatNumber(s.replenished_total));
         setText('clinicReplenishmentHint', `第 ${formatNumber(s.cycle_day)} 天，剩余上限 ${formatNumber(s.remaining_replenishment_cap)}，预测剩余 ${formatNumber(s.projected_remaining)}，当前触发 ${formatNumber(s.estimated_replenishment_now)}`);
         setText('clinicAlertCount', formatNumber(alertTotal));
-        renderSpecialClinicCharts(data);
-        renderSimpleRows('clinicTierRows', data.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
+        renderSpecialClinicCharts(view);
+        renderSimpleRows('clinicTierRows', view.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
         renderSimpleRows('clinicAuditRows', audit.checks || [], ['name', 'left', 'right', 'diff'], {diff: value => Number(value || 0) === 0 ? '<span class="pill green">0</span>' : `<span class="pill yellow">${formatNumber(value)}</span>`});
         renderSimpleRows('clinicAlertRows', audit.alerts || [], ['name', 'count']);
-        renderSimpleRows('clinicHourlyRows', data.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
-        renderSimpleRows('clinicRewardRows', data.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
-        renderSimpleRows('clinicResourceRows', data.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
-        renderSimpleRows('clinicPatientRows', data.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
-        renderSimpleRows('clinicCabinetRows', data.weeklyCabinet || data.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'cycle_day', 'base_initial_total', 'replenished_total', 'replenished_equivalent_cost', 'remaining_replenishment_cap', 'recent_2h_diagnoses', 'projected_remaining', 'estimated_replenishment_now', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`, replenished_equivalent_cost: value => formatMoney(value)});
-        renderSimpleRows('clinicHospitalRows', data.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
+        renderSimpleRows('clinicHourlyRows', view.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
+        renderSimpleRows('clinicRewardRows', view.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
+        renderSimpleRows('clinicResourceRows', view.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
+        renderSimpleRows('clinicPatientRows', view.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
+        renderSimpleRows('clinicCabinetRows', view.weeklyCabinet || view.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'cycle_day', 'base_initial_total', 'replenished_total', 'replenished_equivalent_cost', 'remaining_replenishment_cap', 'recent_2h_diagnoses', 'projected_remaining', 'estimated_replenishment_now', 'diagnosis_count_from_record', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`, replenished_equivalent_cost: value => formatMoney(value)});
+        renderSimpleRows('clinicHospitalRows', view.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
     }
 
     function renderSpecialClinicCharts(data) {

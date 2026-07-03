@@ -36,6 +36,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('data-page-tab="overall"', html)
         self.assertIn('data-page-tab="specialClinic"', html)
         self.assertIn('id="specialClinicPage"', html)
+        self.assertIn('id="clinicWeekTabs"', html)
+        self.assertIn("data-clinic-week", html)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()
@@ -52,6 +54,33 @@ class AppContractTest(unittest.TestCase):
 
     def test_special_clinic_prescription_page_item_name_is_mapped(self):
         self.assertEqual(app_module.SPECIAL_CLINIC_ITEM_NAMES[1351], "荣光病志残页")
+
+    def test_special_clinic_week_meta_labels_latest_first(self):
+        first = app_module.special_clinic_week_meta({"clinic_date": "2026-07-01"}, 0)
+        second = app_module.special_clinic_week_meta({"clinic_date": "2026-06-24"}, 1)
+
+        self.assertEqual(first["key"], "2026-07-01")
+        self.assertEqual(first["label"], "本周 07-01")
+        self.assertEqual(first["range_label"], "07-01 至 07-07")
+        self.assertEqual(second["label"], "上周 06-24")
+
+    def test_special_clinic_week_summary_uses_weekly_record_count(self):
+        summary = {"diagnosis_count": 10, "active_hospital_count": 4}
+
+        app_module.apply_special_clinic_week_summary(summary, {
+            "clinic_date": "2026-07-01",
+            "diagnosis_count_from_record": 42,
+            "status": "OPEN",
+            "initial_total": 6000,
+            "supply_total": 6000,
+            "total_diagnoses": 41,
+            "consume_rate": 0.68,
+        })
+
+        self.assertEqual(summary["diagnosis_count"], 42)
+        self.assertEqual(summary["latest_clinic_date"], "2026-07-01")
+        self.assertEqual(summary["cabinet_status"], "OPEN")
+        self.assertEqual(summary["supply_total"], 6000)
 
     def test_special_clinic_supply_metrics_use_weekly_consumption_numerator(self):
         row = app_module.add_special_clinic_supply_metrics({
@@ -96,9 +125,10 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("coalesce(c.last_replenish_hour_key, '') as last_replenish_hour_key", source)
         self.assertIn("recent_2h_diagnoses", source)
         self.assertIn("estimated_replenishment_now", source)
-        self.assertIn('"diagnosis_count": latest_week.get("diagnosis_count_from_record", 0)', source)
-        self.assertIn('"cycle_day": latest_week.get("cycle_day", 0)', source)
+        self.assertIn('"diagnosis_count": cabinet_row.get("diagnosis_count_from_record", summary.get("diagnosis_count", 0))', source)
+        self.assertIn('"cycle_day": cabinet_row.get("cycle_day", 0)', source)
         self.assertIn("left join record_weekly", source)
+        self.assertIn('"weeklyPages": weekly_pages', source)
 
     def test_dashboard_uses_weekly_cabinet_copy(self):
         client = app.test_client()
