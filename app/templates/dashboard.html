@@ -305,7 +305,8 @@
             <div class="card"><div class="label">参与医院</div><div class="value" id="clinicHospitals">-</div><div class="hint">选中周期发生确诊的医院数</div></div>
             <div class="card"><div class="label">付费票看病</div><div class="value" id="clinicPaidDiagnoses">-</div><div class="hint">选中周期使用元宝补诊票确诊</div></div>
             <div class="card"><div class="label">购票元宝成本</div><div class="value" id="clinicIngotCost">-</div><div class="hint" id="clinicTicketHint">-</div></div>
-            <div class="card"><div class="label">周库存消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
+            <div class="card"><div class="label">病历池消耗率</div><div class="value" id="clinicConsumeRate">-</div><div class="hint" id="clinicCabinetHint">-</div></div>
+            <div class="card"><div class="label">残页奖池消耗率</div><div class="value" id="clinicPrizePoolRate">-</div><div class="hint" id="clinicPrizePoolHint">-</div></div>
             <div class="card"><div class="label">诊期补仓</div><div class="value" id="clinicReplenishedTotal">-</div><div class="hint" id="clinicReplenishmentHint">-</div></div>
             <div class="card"><div class="label">风险提示次数</div><div class="value" id="clinicAlertCount">-</div><div class="hint">选中周期无票、空柜、结诊、购票上限、未开放包和元宝不足</div></div>
         </section>
@@ -313,16 +314,20 @@
         <section class="grid">
             <div class="panel"><h2>每小时特需诊断与购票</h2><div class="chart-box"><canvas id="clinicHourlyChart"></canvas></div><div class="note">时间口径使用北京时间小时桶，按选中周三周期。</div></div>
             <div class="panel"><h2>病历等级分布</h2><div class="chart-box"><canvas id="clinicTierChart"></canvas></div><div class="table-scroll clinic-table"><table><thead><tr><th>等级</th><th>确诊</th><th>医院</th><th>付费票</th></tr></thead><tbody id="clinicTierRows"></tbody></table></div></div>
-            <div class="panel"><h2>道具奖品发放 Top 12</h2><div class="chart-box"><canvas id="clinicRewardItemChart"></canvas></div><div class="note">道具奖品来自确诊记录 reward_items。</div></div>
+            <div class="panel"><h2>道具奖品发放 Top 12</h2><div class="chart-box"><canvas id="clinicRewardItemChart"></canvas></div><div class="note">道具奖品来自确诊记录 reward_items 和后台补偿物品，票流水另列。</div></div>
             <div class="panel"><h2>主账资源发放，按小时</h2><div class="chart-box"><canvas id="clinicResourceChart"></canvas></div><div class="note">资源来自确诊记录主账，金钱使用右轴。</div></div>
             <div class="panel"><h2>对账异常</h2><div class="table-scroll clinic-table"><table><thead><tr><th>项目</th><th>主口径</th><th>校验口径</th><th>差异</th></tr></thead><tbody id="clinicAuditRows"></tbody></table></div><div class="table-scroll clinic-table"><table><thead><tr><th>风险提示类型</th><th>次数</th></tr></thead><tbody id="clinicAlertRows"></tbody></table></div></div>
             <div class="panel wide">
                 <h2>每小时总览</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>后台补偿票</th><th>临时患者</th><th>元宝奖</th><th>金钱奖</th><th>声望奖</th><th>荣耀奖</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>补偿奖品</th><th>临时患者</th><th>元宝奖</th><th>金钱奖</th><th>声望奖</th><th>荣耀奖</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>道具奖品发放</h2>
-                <div class="table-scroll clinic-table"><table><thead><tr><th>道具 ID</th><th>奖品</th><th>发放数量</th><th>记录数</th><th>医院数</th></tr></thead><tbody id="clinicRewardRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>奖品</th><th>总发放</th><th>确诊奖品</th><th>补偿奖品</th><th>确诊记录数</th><th>确诊医院数</th><th>补偿批次</th><th>补偿医院数</th></tr></thead><tbody id="clinicRewardRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>后台补偿奖品</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>批次</th><th>道具 ID</th><th>奖品</th><th>单院数量</th><th>医院数</th><th>总发放</th><th>原因</th></tr></thead><tbody id="clinicCompensationRewardRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>主账资源发放</h2>
@@ -334,11 +339,11 @@
             </div>
             <div class="panel wide">
                 <h2>门诊票流水</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>来源</th><th>类型</th><th>原因</th><th>普通票变化</th><th>赠票变化</th><th>付费票变化</th><th>后台补偿票</th><th>元宝</th><th>记录数</th><th>医院数</th></tr></thead><tbody id="clinicTicketRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>来源</th><th>类型</th><th>原因</th><th>普通票变化</th><th>赠票变化</th><th>付费票变化</th><th>元宝</th><th>记录数</th><th>医院数</th></tr></thead><tbody id="clinicTicketRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>每周库存消耗</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>本周已诊</th><th>消耗率</th><th>统计剩余</th><th>柜体剩余</th><th>周期日</th><th>补仓基数</th><th>累计补仓</th><th>补仓成本</th><th>补仓上限</th><th>近2小时</th><th>预测剩余</th><th>当前触发补仓</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>本周已诊</th><th>病历消耗率</th><th>统计剩余</th><th>柜体剩余</th><th>残页预算</th><th>残页已发</th><th>残页奖池率</th><th>周期日</th><th>补仓基数</th><th>累计补仓</th><th>补仓成本</th><th>补仓上限</th><th>近2小时</th><th>预测剩余</th><th>当前触发补仓</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>医院行为 Top 30</h2>
@@ -598,12 +603,14 @@
         setText('clinicHospitals', formatNumber(s.active_hospital_count));
         setText('clinicPaidDiagnoses', formatNumber(s.paid_diagnosis_count));
         setText('clinicIngotCost', formatNumber(s.ingot_cost));
-        setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，后台补偿 ${formatNumber(s.compensated_ticket_grants)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
+        setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
         setText('clinicConsumeRate', `${formatMoney(s.consume_rate)}%`);
         const legacyCabinetHint = Number(s.non_canonical_cabinet_diagnoses || 0) > 0
             ? `，遗留日柜 ${formatNumber(s.non_canonical_cabinet_diagnoses)}`
             : '';
         setText('clinicCabinetHint', `${s.cabinet_status || '-'}，主柜消耗 ${formatNumber(s.total_diagnoses)} / 周总量 ${formatNumber(s.supply_total)}，剩余 ${formatNumber(s.remaining_total)}${legacyCabinetHint}`);
+        setText('clinicPrizePoolRate', `${formatMoney(s.prescription_page_consume_rate)}%`);
+        setText('clinicPrizePoolHint', `荣光病志残页，已发 ${formatNumber(s.prescription_page_awarded_total)} / 预算 ${formatNumber(s.prescription_page_budget_total)}`);
         setText('clinicReplenishedTotal', formatNumber(s.replenished_total));
         setText('clinicReplenishmentHint', `第 ${formatNumber(s.cycle_day)} 天，剩余上限 ${formatNumber(s.remaining_replenishment_cap)}，预测剩余 ${formatNumber(s.projected_remaining)}，当前触发 ${formatNumber(s.estimated_replenishment_now)}`);
         setText('clinicAlertCount', formatNumber(alertTotal));
@@ -611,12 +618,13 @@
         renderSimpleRows('clinicTierRows', view.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
         renderSimpleRows('clinicAuditRows', audit.checks || [], ['name', 'left', 'right', 'diff'], {diff: value => Number(value || 0) === 0 ? '<span class="pill green">0</span>' : `<span class="pill yellow">${formatNumber(value)}</span>`});
         renderSimpleRows('clinicAlertRows', audit.alerts || [], ['name', 'count']);
-        renderSimpleRows('clinicHourlyRows', view.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'compensated_ticket_grants', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
-        renderSimpleRows('clinicRewardRows', view.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
+        renderSimpleRows('clinicHourlyRows', view.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'compensated_reward_item_count', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
+        renderSimpleRows('clinicRewardRows', view.rewardItems || [], ['item_id', 'item_name', 'item_count', 'diagnosis_item_count', 'compensation_item_count', 'record_count', 'hospital_count', 'compensation_batch_count', 'compensation_hospital_count']);
+        renderSimpleRows('clinicCompensationRewardRows', view.compensationRewards || [], ['label', 'batch_no', 'item_id', 'item_name', 'item_each', 'hospital_count', 'item_count', 'reason'], {}, 80);
         renderSimpleRows('clinicResourceRows', view.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicPatientRows', view.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
-        renderSimpleRows('clinicTicketRows', view.ticketFlows || [], ['label', 'source', 'change_type', 'reason', 'appointment_delta_sum', 'gifted_delta_sum', 'paid_delta_sum', 'compensated_ticket_sum', 'ingot_cost_sum', 'row_count', 'hospital_count'], {}, 80);
-        renderSimpleRows('clinicCabinetRows', view.weeklyCabinet || view.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'cycle_day', 'base_initial_total', 'replenished_total', 'replenished_equivalent_cost', 'remaining_replenishment_cap', 'recent_2h_diagnoses', 'projected_remaining', 'estimated_replenishment_now', 'diagnosis_count_from_record', 'weekly_cabinet_diagnoses', 'non_canonical_cabinet_diagnoses', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`, replenished_equivalent_cost: value => formatMoney(value)});
+        renderSimpleRows('clinicTicketRows', view.ticketFlows || [], ['label', 'source', 'change_type', 'reason', 'appointment_delta_sum', 'gifted_delta_sum', 'paid_delta_sum', 'ingot_cost_sum', 'row_count', 'hospital_count'], {}, 80);
+        renderSimpleRows('clinicCabinetRows', view.weeklyCabinet || view.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'prescription_page_budget_total', 'prescription_page_awarded_total', 'prescription_page_consume_rate', 'cycle_day', 'base_initial_total', 'replenished_total', 'replenished_equivalent_cost', 'remaining_replenishment_cap', 'recent_2h_diagnoses', 'projected_remaining', 'estimated_replenishment_now', 'diagnosis_count_from_record', 'weekly_cabinet_diagnoses', 'non_canonical_cabinet_diagnoses', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`, prescription_page_consume_rate: value => `${formatMoney(value)}%`, replenished_equivalent_cost: value => formatMoney(value)});
         renderSimpleRows('clinicHospitalRows', view.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
     }
 
@@ -627,7 +635,6 @@
             datasets: [
                 {label: '确诊', data: hourly.map(row => row.diagnosis_count), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.14)', tension: 0.32},
                 {label: '购票张数', data: hourly.map(row => row.paid_ticket_purchased), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32},
-                {label: '后台补偿票', data: hourly.map(row => row.compensated_ticket_grants), borderColor: '#ff6b86', backgroundColor: 'rgba(255, 107, 134, 0.14)', tension: 0.32},
                 {label: '元宝成本', data: hourly.map(row => row.ingot_cost), borderColor: '#ffd166', backgroundColor: 'rgba(255, 209, 102, 0.14)', tension: 0.32}
             ]
         });

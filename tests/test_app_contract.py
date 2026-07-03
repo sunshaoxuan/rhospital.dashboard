@@ -75,12 +75,18 @@ class AppContractTest(unittest.TestCase):
             "supply_total": 6000,
             "total_diagnoses": 41,
             "consume_rate": 0.68,
+            "prescription_page_budget_total": 377,
+            "prescription_page_awarded_total": 367,
+            "prescription_page_consume_rate": 97.35,
         })
 
         self.assertEqual(summary["diagnosis_count"], 42)
         self.assertEqual(summary["latest_clinic_date"], "2026-07-01")
         self.assertEqual(summary["cabinet_status"], "OPEN")
         self.assertEqual(summary["supply_total"], 6000)
+        self.assertEqual(summary["prescription_page_budget_total"], 377)
+        self.assertEqual(summary["prescription_page_awarded_total"], 367)
+        self.assertEqual(summary["prescription_page_consume_rate"], 97.35)
 
     def test_special_clinic_supply_metrics_use_weekly_consumption_numerator(self):
         row = app_module.add_special_clinic_supply_metrics({
@@ -102,6 +108,15 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(weekly_row["supply_total"], 6000)
         self.assertEqual(weekly_row["consume_rate"], 69.87)
 
+        prize_row = app_module.add_special_clinic_supply_metrics({
+            "initial_total": 6000,
+            "total_diagnoses": 3000,
+            "prescription_page_budget_total": 377,
+            "prescription_page_awarded_total": 367,
+        })
+
+        self.assertEqual(prize_row["prescription_page_consume_rate"], 97.35)
+
     def test_special_clinic_depleted_at_select_tolerates_missing_column(self):
         sql, params = app_module.special_clinic_depleted_at_select(False)
 
@@ -114,9 +129,10 @@ class AppContractTest(unittest.TestCase):
 
         self.assertIn("clinic_week_start", source)
         self.assertIn("t_compensation_batch_record", source)
-        self.assertIn("compensated_ticket_grants", source)
-        self.assertIn("compensated_ticket_sum", source)
-        self.assertIn("compensation_batch", source)
+        self.assertIn("compensated_reward_item_count", source)
+        self.assertIn("load_special_clinic_compensation_rewards", source)
+        self.assertIn("prescription_page_budget_total", source)
+        self.assertIn("prescription_page_awarded_total", source)
         self.assertIn("canonical_cabinet", source)
         self.assertIn("cabinet_aggregate", source)
         self.assertIn("cabinet_rank = 1", source)
@@ -144,9 +160,11 @@ class AppContractTest(unittest.TestCase):
 
         self.assertIn("每周库存消耗", html)
         self.assertIn("门诊票流水", html)
-        self.assertIn("后台补偿票", html)
-        self.assertIn("compensated_ticket_grants", html)
-        self.assertIn("compensated_ticket_sum", html)
+        self.assertIn("后台补偿奖品", html)
+        self.assertIn("残页奖池消耗率", html)
+        self.assertIn("compensated_reward_item_count", html)
+        self.assertIn("compensation_item_count", html)
+        self.assertIn("prescription_page_consume_rate", html)
         self.assertIn("周总量", html)
         self.assertIn("主柜消耗", html)
         self.assertIn("遗留日柜", html)
@@ -165,7 +183,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("https://ccnode.briconbric.com/rhdashboard/", readme)
         self.assertIn("PROD_DB_URL=postgresql://178.239.117.99:35432/hospital", readme)
         self.assertIn("t_compensation_batch_record", readme)
-        self.assertIn("后台补偿票", readme)
+        self.assertIn("后台补偿奖品", readme)
+        self.assertIn("门诊票流水仅统计 `t_special_clinic_ticket_log`", readme)
         deploy_section = re.search(r"## ccnode 简单发布流程(?P<body>.*)", readme, re.S)
         self.assertIsNotNone(deploy_section)
         self.assertNotIn("http://178.239.117.99/rhdashboard/", deploy_section.group("body"))

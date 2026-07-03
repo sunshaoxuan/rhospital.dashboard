@@ -36,6 +36,7 @@ SPECIAL_CLINIC_ITEM_NAMES = {
     1791: "补签卡",
     1792: "特需门诊票",
 }
+SPECIAL_CLINIC_EVENT_ITEM_IDS = {1351, 1792}
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
 
@@ -215,6 +216,9 @@ def apply_special_clinic_week_summary(summary, cabinet_row):
         "critical_admitted_count": cabinet_row.get("critical_admitted_count", 0),
         "supply_total": cabinet_row.get("supply_total", 0),
         "consume_rate": cabinet_row.get("consume_rate", 0),
+        "prescription_page_budget_total": cabinet_row.get("prescription_page_budget_total", 0),
+        "prescription_page_awarded_total": cabinet_row.get("prescription_page_awarded_total", 0),
+        "prescription_page_consume_rate": cabinet_row.get("prescription_page_consume_rate", 0),
         "base_initial_total": cabinet_row.get("base_initial_total", 0),
         "replenished_total": cabinet_row.get("replenished_total", 0),
         "replenished_equivalent_cost": cabinet_row.get("replenished_equivalent_cost", 0),
@@ -891,6 +895,7 @@ def load_special_clinic_stats_from_prod():
             tier_distribution = latest_page["tierDistribution"]
             patient_distribution = latest_page["patientDistribution"]
             reward_items = latest_page["rewardItems"]
+            compensation_rewards = latest_page["compensationRewards"]
             resource_rewards = latest_page["resourceRewards"]
             ticket_flows = latest_page["ticketFlows"]
             hospital_daily = latest_page["hospitalDaily"]
@@ -901,6 +906,7 @@ def load_special_clinic_stats_from_prod():
             tier_distribution = load_special_clinic_tier_distribution(conn)
             patient_distribution = load_special_clinic_patient_distribution(conn)
             reward_items = load_special_clinic_reward_items(conn)
+            compensation_rewards = load_special_clinic_compensation_rewards(conn)
             resource_rewards = load_special_clinic_resource_rewards(conn)
             ticket_flows = load_special_clinic_ticket_flows(conn)
             hospital_daily = load_special_clinic_hospital_daily(conn)
@@ -915,6 +921,7 @@ def load_special_clinic_stats_from_prod():
             "tierDistribution": tier_distribution,
             "patientDistribution": patient_distribution,
             "rewardItems": reward_items,
+            "compensationRewards": compensation_rewards,
             "resourceRewards": resource_rewards,
             "ticketFlows": ticket_flows,
             "weeklyCabinet": weekly_cabinet,
@@ -939,6 +946,7 @@ def load_special_clinic_weekly_pages(conn, weekly_cabinet):
             "tierDistribution": load_special_clinic_tier_distribution(conn, week_start),
             "patientDistribution": load_special_clinic_patient_distribution(conn, week_start),
             "rewardItems": load_special_clinic_reward_items(conn, week_start),
+            "compensationRewards": load_special_clinic_compensation_rewards(conn, week_start),
             "resourceRewards": load_special_clinic_resource_rewards(conn, week_start),
             "ticketFlows": load_special_clinic_ticket_flows(conn, week_start),
             "weeklyCabinet": [cabinet_row],
@@ -952,7 +960,7 @@ def load_special_clinic_weekly_pages(conn, weekly_cabinet):
 def load_special_clinic_summary(conn, week_start=None):
     record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
     ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
-    compensation_where, compensation_params = special_clinic_time_filter("create_time", week_start)
+    compensation_where, compensation_params = special_clinic_compensation_reward_filter("create_time", week_start)
     cabinet_where, cabinet_params = (
         f"where {special_clinic_cycle_start_expr('clinic_date')} = %s::date",
         (week_start,),
@@ -968,13 +976,10 @@ def load_special_clinic_summary(conn, week_start=None):
             select *
             from t_special_clinic_ticket_log
             where {ticket_where}
-        ), compensation as (
+        ), compensation_rewards as (
             select *
             from t_compensation_batch_record
-            where coalesce(item_id, 0) = 1792
-              and coalesce(type, '') = 'item'
-              and coalesce(status, '') = 'SUCCESS'
-              and {compensation_where}
+            where {compensation_where}
         ), c as (
             select *
             from t_special_clinic_cabinet
@@ -988,8 +993,8 @@ def load_special_clinic_summary(conn, week_start=None):
             (select count(*) from r where ticket_type_used = 'PAID') as paid_diagnosis_count,
             (select coalesce(sum(greatest(paid_delta, 0)), 0) from t where change_type = 'PURCHASE') as paid_ticket_purchased,
             (select coalesce(sum(ingot_cost), 0) from t where change_type = 'PURCHASE') as ingot_cost,
-            (select coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) from compensation) as compensated_ticket_grants,
-            (select coalesce(sum(coalesce(success_count, 0)), 0) from compensation) as compensated_ticket_hospitals,
+            (select coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) from compensation_rewards) as compensated_reward_item_count,
+            (select coalesce(sum(coalesce(success_count, 0)), 0) from compensation_rewards) as compensated_reward_hospitals,
             (select coalesce(sum(temporary_patients), 0) from r) as temporary_patients,
             (select coalesce(sum(ingot_reward), 0) from r) as ingot_reward,
             (select coalesce(sum(money_reward), 0) from r) as money_reward,
@@ -1000,6 +1005,8 @@ def load_special_clinic_summary(conn, week_start=None):
             coalesce((select initial_total from c), 0) as initial_total,
             coalesce((select remaining_total from c), 0) as remaining_total,
             coalesce((select total_diagnoses from c), 0) as total_diagnoses,
+            coalesce((select prescription_page_budget_total from c), 0) as prescription_page_budget_total,
+            coalesce((select prescription_page_awarded_total from c), 0) as prescription_page_awarded_total,
             coalesce((select empty_attempt_count from c), 0) as empty_attempt_count,
             coalesce((select critical_admitted_count from c), 0) as critical_admitted_count
         """,
@@ -1014,13 +1021,38 @@ def add_special_clinic_supply_metrics(row):
     supply_total = initial_total if initial_total > 0 else total_diagnoses
     row["supply_total"] = supply_total
     row["consume_rate"] = round(total_diagnoses * 100 / supply_total, 2) if supply_total else 0
+    prescription_page_budget = int(row.get("prescription_page_budget_total") or 0)
+    prescription_page_awarded = int(row.get("prescription_page_awarded_total") or 0)
+    row["prescription_page_consume_rate"] = (
+        round(prescription_page_awarded * 100 / prescription_page_budget, 2)
+        if prescription_page_budget
+        else 0
+    )
     return row
+
+
+def special_clinic_compensation_reward_filter(column_name="create_time", week_start=None):
+    time_where, time_params = special_clinic_time_filter(column_name, week_start)
+    event_ids = ", ".join(str(item_id) for item_id in sorted(SPECIAL_CLINIC_EVENT_ITEM_IDS))
+    return (
+        f"""
+        coalesce(type, '') = 'item'
+        and coalesce(status, '') in ('SUCCESS', 'PARTIAL_FAILED')
+        and (
+            coalesce(item_id, 0) in ({event_ids})
+            or coalesce(log, '') like '%%特需%%'
+            or coalesce(log, '') like '%%门诊%%'
+        )
+        and {time_where}
+        """,
+        time_params,
+    )
 
 
 def load_special_clinic_hourly_summary(conn, week_start=None):
     record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
     ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
-    compensation_where, compensation_params = special_clinic_time_filter("create_time", week_start)
+    compensation_where, compensation_params = special_clinic_compensation_reward_filter("create_time", week_start)
     return query_list(
         conn,
         f"""
@@ -1050,13 +1082,10 @@ def load_special_clinic_hourly_summary(conn, week_start=None):
             group by hour_bucket
         ), compensation_hourly as (
             select date_trunc('hour', create_time at time zone 'UTC' at time zone %s) as hour_bucket,
-                   coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) as compensated_ticket_grants,
-                   coalesce(sum(coalesce(success_count, 0)), 0) as compensated_ticket_hospitals
+                   coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) as compensated_reward_item_count,
+                   coalesce(sum(coalesce(success_count, 0)), 0) as compensated_reward_hospitals
             from t_compensation_batch_record
-            where coalesce(item_id, 0) = 1792
-              and coalesce(type, '') = 'item'
-              and coalesce(status, '') = 'SUCCESS'
-              and {compensation_where}
+            where {compensation_where}
             group by hour_bucket
         )
         select to_char(coalesce(r.hour_bucket, t.hour_bucket, c.hour_bucket), 'MM-DD HH24:00') as label,
@@ -1069,8 +1098,8 @@ def load_special_clinic_hourly_summary(conn, week_start=None):
                coalesce(t.paid_ticket_purchased, 0) as paid_ticket_purchased,
                coalesce(t.ingot_cost, 0) as ingot_cost,
                coalesce(r.reward_ticket_count, 0) as reward_ticket_count,
-               coalesce(c.compensated_ticket_grants, 0) as compensated_ticket_grants,
-               coalesce(c.compensated_ticket_hospitals, 0) as compensated_ticket_hospitals,
+               coalesce(c.compensated_reward_item_count, 0) as compensated_reward_item_count,
+               coalesce(c.compensated_reward_hospitals, 0) as compensated_reward_hospitals,
                coalesce(r.temporary_patients, 0) as temporary_patients,
                coalesce(r.ingot_reward, 0) as ingot_reward,
                coalesce(r.money_reward, 0) as money_reward,
@@ -1133,20 +1162,66 @@ def load_special_clinic_patient_distribution(conn, week_start=None):
 
 def load_special_clinic_reward_items(conn, week_start=None):
     where_clause, params = special_clinic_cycle_filter("r.clinic_date", week_start)
+    compensation_where, compensation_params = special_clinic_compensation_reward_filter("create_time", week_start)
     rows = query_list(
         conn,
         f"""
-        select e.key::bigint as item_id,
-               coalesce(sum(e.value::int), 0) as item_count,
-               count(*) as record_count,
-               count(distinct r.hospital_id) as hospital_count
-        from t_special_clinic_patient_record r
-        cross join lateral jsonb_each_text(coalesce(r.reward_items, '{{}}'::jsonb)) e
-        where {where_clause}
-        group by e.key::bigint
+        with diagnosis_items as (
+            select e.key::bigint as item_id,
+                   coalesce(sum(e.value::int), 0) as diagnosis_item_count,
+                   count(*) as record_count,
+                   count(distinct r.hospital_id) as hospital_count
+            from t_special_clinic_patient_record r
+            cross join lateral jsonb_each_text(coalesce(r.reward_items, '{{}}'::jsonb)) e
+            where {where_clause}
+            group by e.key::bigint
+        ), compensation_items as (
+            select coalesce(item_id, 0)::bigint as item_id,
+                   coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) as compensation_item_count,
+                   count(*) as compensation_batch_count,
+                   coalesce(sum(coalesce(success_count, 0)), 0) as compensation_hospital_count
+            from t_compensation_batch_record
+            where {compensation_where}
+            group by coalesce(item_id, 0)::bigint
+        )
+        select coalesce(d.item_id, c.item_id) as item_id,
+               coalesce(d.diagnosis_item_count, 0) + coalesce(c.compensation_item_count, 0) as item_count,
+               coalesce(d.diagnosis_item_count, 0) as diagnosis_item_count,
+               coalesce(c.compensation_item_count, 0) as compensation_item_count,
+               coalesce(d.record_count, 0) as record_count,
+               coalesce(d.hospital_count, 0) as hospital_count,
+               coalesce(c.compensation_batch_count, 0) as compensation_batch_count,
+               coalesce(c.compensation_hospital_count, 0) as compensation_hospital_count
+        from diagnosis_items d
+        full outer join compensation_items c on c.item_id = d.item_id
+        where coalesce(d.item_id, c.item_id) > 0
         order by item_count desc, record_count desc, item_id
         """,
-        params,
+        (*params, *compensation_params),
+    )
+    for row in rows:
+        row["item_name"] = SPECIAL_CLINIC_ITEM_NAMES.get(int(row["item_id"]), f"道具 {row['item_id']}")
+    return rows
+
+
+def load_special_clinic_compensation_rewards(conn, week_start=None):
+    compensation_where, compensation_params = special_clinic_compensation_reward_filter("create_time", week_start)
+    rows = query_list(
+        conn,
+        f"""
+        select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
+               coalesce(batch_no, '') as batch_no,
+               coalesce(item_id, 0)::bigint as item_id,
+               coalesce(num, 0) as item_each,
+               coalesce(success_count, 0) as hospital_count,
+               coalesce(num, 0) * coalesce(success_count, 0) as item_count,
+               coalesce(log, '') as reason
+        from t_compensation_batch_record
+        where {compensation_where}
+        order by create_time desc, id desc
+        limit 80
+        """,
+        (SPECIAL_CLINIC_ZONE_ID, *compensation_params),
     )
     for row in rows:
         row["item_name"] = SPECIAL_CLINIC_ITEM_NAMES.get(int(row["item_id"]), f"道具 {row['item_id']}")
@@ -1175,66 +1250,26 @@ def load_special_clinic_resource_rewards(conn, week_start=None):
 
 def load_special_clinic_ticket_flows(conn, week_start=None):
     where_clause, params = special_clinic_cycle_filter("clinic_date", week_start)
-    compensation_where, compensation_params = special_clinic_time_filter("create_time", week_start)
     return query_list(
         conn,
         f"""
-        with ticket_flow as (
-            select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
-                   'ticket_log' as source,
-                   coalesce(change_type, 'UNKNOWN') as change_type,
-                   coalesce(reason, '') as reason,
-                   coalesce(sum(appointment_delta), 0) as appointment_delta_sum,
-                   coalesce(sum(gifted_delta), 0) as gifted_delta_sum,
-                   coalesce(sum(paid_delta), 0) as paid_delta_sum,
-                   0::bigint as compensated_ticket_sum,
-                   coalesce(sum(ingot_cost), 0) as ingot_cost_sum,
-                   count(*) as row_count,
-                   count(distinct hospital_id) as hospital_count,
-                   min(create_time) as sort_time
-            from t_special_clinic_ticket_log
-            where {where_clause}
-            group by label, change_type, reason
-        ), compensation_flow as (
-            select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
-                   'compensation_batch' as source,
-                   'COMPENSATION' as change_type,
-                   coalesce(log, '') as reason,
-                   0::bigint as appointment_delta_sum,
-                   0::bigint as gifted_delta_sum,
-                   0::bigint as paid_delta_sum,
-                   coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) as compensated_ticket_sum,
-                   0::bigint as ingot_cost_sum,
-                   count(*) as row_count,
-                   coalesce(sum(coalesce(success_count, 0)), 0) as hospital_count,
-                   min(create_time) as sort_time
-            from t_compensation_batch_record
-            where coalesce(item_id, 0) = 1792
-              and coalesce(type, '') = 'item'
-              and coalesce(status, '') = 'SUCCESS'
-              and {compensation_where}
-            group by label, log
-        )
-        select label,
-               source,
+        select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
+               'ticket_log' as source,
                change_type,
                reason,
-               appointment_delta_sum,
-               gifted_delta_sum,
-               paid_delta_sum,
-               compensated_ticket_sum,
-               ingot_cost_sum,
-               row_count,
-               hospital_count
-        from (
-            select * from ticket_flow
-            union all
-            select * from compensation_flow
-        ) flow
-        order by sort_time desc, row_count desc
+               coalesce(sum(appointment_delta), 0) as appointment_delta_sum,
+               coalesce(sum(gifted_delta), 0) as gifted_delta_sum,
+               coalesce(sum(paid_delta), 0) as paid_delta_sum,
+               coalesce(sum(ingot_cost), 0) as ingot_cost_sum,
+               count(*) as row_count,
+               count(distinct hospital_id) as hospital_count
+        from t_special_clinic_ticket_log
+        where {where_clause}
+        group by label, change_type, reason
+        order by min(create_time) desc, row_count desc
         limit 80
         """,
-        (SPECIAL_CLINIC_ZONE_ID, *params, SPECIAL_CLINIC_ZONE_ID, *compensation_params),
+        (SPECIAL_CLINIC_ZONE_ID, *params),
     )
 
 
@@ -1292,6 +1327,11 @@ def load_special_clinic_weekly_cabinet(conn):
                    coalesce(c.consultation_threshold, 0) as consultation_threshold,
                    coalesce(c.remaining_by_tier::text, '{{}}') as remaining_by_tier,
                    coalesce(c.replenishment_policy_version, '') as replenishment_policy_version,
+                   coalesce(c.prescription_page_policy_version, '') as prescription_page_policy_version,
+                   coalesce(c.prescription_page_budget_total, 0) as prescription_page_budget_total,
+                   coalesce(c.prescription_page_awarded_total, 0) as prescription_page_awarded_total,
+                   coalesce(c.prescription_page_budget_by_tier::text, '{{}}') as prescription_page_budget_by_tier,
+                   coalesce(c.prescription_page_awarded_by_tier::text, '{{}}') as prescription_page_awarded_by_tier,
                    coalesce(c.replenished_total, 0) as replenished_total,
                    coalesce(c.replenished_equivalent_cost, 0) as replenished_equivalent_cost,
                    coalesce(c.last_replenish_hour_key, '') as last_replenish_hour_key,
@@ -1352,6 +1392,11 @@ def load_special_clinic_weekly_cabinet(conn):
                coalesce(c.consultation_threshold, 0) as consultation_threshold,
                coalesce(c.remaining_by_tier, '{{}}') as remaining_by_tier,
                coalesce(c.replenishment_policy_version, '') as replenishment_policy_version,
+               coalesce(c.prescription_page_policy_version, '') as prescription_page_policy_version,
+               coalesce(c.prescription_page_budget_total, 0) as prescription_page_budget_total,
+               coalesce(c.prescription_page_awarded_total, 0) as prescription_page_awarded_total,
+               coalesce(c.prescription_page_budget_by_tier, '{{}}') as prescription_page_budget_by_tier,
+               coalesce(c.prescription_page_awarded_by_tier, '{{}}') as prescription_page_awarded_by_tier,
                coalesce(c.replenished_total, 0) as replenished_total,
                coalesce(c.replenished_equivalent_cost, 0) as replenished_equivalent_cost,
                coalesce(c.last_replenish_hour_key, '') as last_replenish_hour_key,
@@ -1592,6 +1637,7 @@ def load_unavailable_special_clinic_stats(error: Exception):
         "tierDistribution": [],
         "patientDistribution": [],
         "rewardItems": [],
+        "compensationRewards": [],
         "resourceRewards": [],
         "ticketFlows": [],
         "weeklyCabinet": [],
