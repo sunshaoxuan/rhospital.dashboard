@@ -318,7 +318,7 @@
             <div class="panel"><h2>对账异常</h2><div class="table-scroll clinic-table"><table><thead><tr><th>项目</th><th>主口径</th><th>校验口径</th><th>差异</th></tr></thead><tbody id="clinicAuditRows"></tbody></table></div><div class="table-scroll clinic-table"><table><thead><tr><th>风险提示类型</th><th>次数</th></tr></thead><tbody id="clinicAlertRows"></tbody></table></div></div>
             <div class="panel wide">
                 <h2>每小时总览</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>临时患者</th><th>元宝奖</th><th>金钱奖</th><th>声望奖</th><th>荣耀奖</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>后台补偿票</th><th>临时患者</th><th>元宝奖</th><th>金钱奖</th><th>声望奖</th><th>荣耀奖</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>道具奖品发放</h2>
@@ -331,6 +331,10 @@
             <div class="panel wide">
                 <h2>具体病历分布</h2>
                 <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>病历编码</th><th>病历名</th><th>等级</th><th>确诊</th><th>医院数</th><th>付费票</th></tr></thead><tbody id="clinicPatientRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>门诊票流水</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>来源</th><th>类型</th><th>原因</th><th>普通票变化</th><th>赠票变化</th><th>付费票变化</th><th>后台补偿票</th><th>元宝</th><th>记录数</th><th>医院数</th></tr></thead><tbody id="clinicTicketRows"></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>每周库存消耗</h2>
@@ -594,7 +598,7 @@
         setText('clinicHospitals', formatNumber(s.active_hospital_count));
         setText('clinicPaidDiagnoses', formatNumber(s.paid_diagnosis_count));
         setText('clinicIngotCost', formatNumber(s.ingot_cost));
-        setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
+        setText('clinicTicketHint', `购票 ${formatNumber(s.paid_ticket_purchased)} 张，后台补偿 ${formatNumber(s.compensated_ticket_grants)} 张，最新门诊日 ${s.latest_clinic_date || '-'}`);
         setText('clinicConsumeRate', `${formatMoney(s.consume_rate)}%`);
         const legacyCabinetHint = Number(s.non_canonical_cabinet_diagnoses || 0) > 0
             ? `，遗留日柜 ${formatNumber(s.non_canonical_cabinet_diagnoses)}`
@@ -607,10 +611,11 @@
         renderSimpleRows('clinicTierRows', view.tierDistribution || [], ['tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
         renderSimpleRows('clinicAuditRows', audit.checks || [], ['name', 'left', 'right', 'diff'], {diff: value => Number(value || 0) === 0 ? '<span class="pill green">0</span>' : `<span class="pill yellow">${formatNumber(value)}</span>`});
         renderSimpleRows('clinicAlertRows', audit.alerts || [], ['name', 'count']);
-        renderSimpleRows('clinicHourlyRows', view.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
+        renderSimpleRows('clinicHourlyRows', view.hourlySummary || [], ['label', 'diagnosis_count', 'active_hospital_count', 'paid_diagnosis_count', 'appointment_ticket_consume', 'gifted_ticket_consume', 'paid_ticket_consume', 'paid_ticket_purchased', 'ingot_cost', 'reward_ticket_count', 'compensated_ticket_grants', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicRewardRows', view.rewardItems || [], ['item_id', 'item_name', 'item_count', 'record_count', 'hospital_count']);
         renderSimpleRows('clinicResourceRows', view.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicPatientRows', view.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
+        renderSimpleRows('clinicTicketRows', view.ticketFlows || [], ['label', 'source', 'change_type', 'reason', 'appointment_delta_sum', 'gifted_delta_sum', 'paid_delta_sum', 'compensated_ticket_sum', 'ingot_cost_sum', 'row_count', 'hospital_count'], {}, 80);
         renderSimpleRows('clinicCabinetRows', view.weeklyCabinet || view.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'cycle_day', 'base_initial_total', 'replenished_total', 'replenished_equivalent_cost', 'remaining_replenishment_cap', 'recent_2h_diagnoses', 'projected_remaining', 'estimated_replenishment_now', 'diagnosis_count_from_record', 'weekly_cabinet_diagnoses', 'non_canonical_cabinet_diagnoses', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`, replenished_equivalent_cost: value => formatMoney(value)});
         renderSimpleRows('clinicHospitalRows', view.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
     }
@@ -622,6 +627,7 @@
             datasets: [
                 {label: '确诊', data: hourly.map(row => row.diagnosis_count), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.14)', tension: 0.32},
                 {label: '购票张数', data: hourly.map(row => row.paid_ticket_purchased), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32},
+                {label: '后台补偿票', data: hourly.map(row => row.compensated_ticket_grants), borderColor: '#ff6b86', backgroundColor: 'rgba(255, 107, 134, 0.14)', tension: 0.32},
                 {label: '元宝成本', data: hourly.map(row => row.ingot_cost), borderColor: '#ffd166', backgroundColor: 'rgba(255, 209, 102, 0.14)', tension: 0.32}
             ]
         });

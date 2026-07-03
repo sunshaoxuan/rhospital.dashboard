@@ -952,6 +952,7 @@ def load_special_clinic_weekly_pages(conn, weekly_cabinet):
 def load_special_clinic_summary(conn, week_start=None):
     record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
     ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+    compensation_where, compensation_params = special_clinic_time_filter("create_time", week_start)
     cabinet_where, cabinet_params = (
         f"where {special_clinic_cycle_start_expr('clinic_date')} = %s::date",
         (week_start,),
@@ -967,6 +968,13 @@ def load_special_clinic_summary(conn, week_start=None):
             select *
             from t_special_clinic_ticket_log
             where {ticket_where}
+        ), compensation as (
+            select *
+            from t_compensation_batch_record
+            where coalesce(item_id, 0) = 1792
+              and coalesce(type, '') = 'item'
+              and coalesce(status, '') = 'SUCCESS'
+              and {compensation_where}
         ), c as (
             select *
             from t_special_clinic_cabinet
@@ -980,6 +988,8 @@ def load_special_clinic_summary(conn, week_start=None):
             (select count(*) from r where ticket_type_used = 'PAID') as paid_diagnosis_count,
             (select coalesce(sum(greatest(paid_delta, 0)), 0) from t where change_type = 'PURCHASE') as paid_ticket_purchased,
             (select coalesce(sum(ingot_cost), 0) from t where change_type = 'PURCHASE') as ingot_cost,
+            (select coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) from compensation) as compensated_ticket_grants,
+            (select coalesce(sum(coalesce(success_count, 0)), 0) from compensation) as compensated_ticket_hospitals,
             (select coalesce(sum(temporary_patients), 0) from r) as temporary_patients,
             (select coalesce(sum(ingot_reward), 0) from r) as ingot_reward,
             (select coalesce(sum(money_reward), 0) from r) as money_reward,
@@ -993,7 +1003,7 @@ def load_special_clinic_summary(conn, week_start=None):
             coalesce((select empty_attempt_count from c), 0) as empty_attempt_count,
             coalesce((select critical_admitted_count from c), 0) as critical_admitted_count
         """,
-        (*record_params, *ticket_params, *cabinet_params),
+        (*record_params, *ticket_params, *compensation_params, *cabinet_params),
     )
     return add_special_clinic_supply_metrics(row)
 
@@ -1010,6 +1020,7 @@ def add_special_clinic_supply_metrics(row):
 def load_special_clinic_hourly_summary(conn, week_start=None):
     record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
     ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+    compensation_where, compensation_params = special_clinic_time_filter("create_time", week_start)
     return query_list(
         conn,
         f"""
@@ -1037,8 +1048,18 @@ def load_special_clinic_hourly_summary(conn, week_start=None):
             from t_special_clinic_ticket_log
             where {ticket_where}
             group by hour_bucket
+        ), compensation_hourly as (
+            select date_trunc('hour', create_time at time zone 'UTC' at time zone %s) as hour_bucket,
+                   coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) as compensated_ticket_grants,
+                   coalesce(sum(coalesce(success_count, 0)), 0) as compensated_ticket_hospitals
+            from t_compensation_batch_record
+            where coalesce(item_id, 0) = 1792
+              and coalesce(type, '') = 'item'
+              and coalesce(status, '') = 'SUCCESS'
+              and {compensation_where}
+            group by hour_bucket
         )
-        select to_char(coalesce(r.hour_bucket, t.hour_bucket), 'MM-DD HH24:00') as label,
+        select to_char(coalesce(r.hour_bucket, t.hour_bucket, c.hour_bucket), 'MM-DD HH24:00') as label,
                coalesce(r.diagnosis_count, 0) as diagnosis_count,
                coalesce(r.active_hospital_count, 0) as active_hospital_count,
                coalesce(r.paid_diagnosis_count, 0) as paid_diagnosis_count,
@@ -1048,6 +1069,8 @@ def load_special_clinic_hourly_summary(conn, week_start=None):
                coalesce(t.paid_ticket_purchased, 0) as paid_ticket_purchased,
                coalesce(t.ingot_cost, 0) as ingot_cost,
                coalesce(r.reward_ticket_count, 0) as reward_ticket_count,
+               coalesce(c.compensated_ticket_grants, 0) as compensated_ticket_grants,
+               coalesce(c.compensated_ticket_hospitals, 0) as compensated_ticket_hospitals,
                coalesce(r.temporary_patients, 0) as temporary_patients,
                coalesce(r.ingot_reward, 0) as ingot_reward,
                coalesce(r.money_reward, 0) as money_reward,
@@ -1055,9 +1078,17 @@ def load_special_clinic_hourly_summary(conn, week_start=None):
                coalesce(r.glory_reward, 0) as glory_reward
         from record_hourly r
         full outer join ticket_hourly t on t.hour_bucket = r.hour_bucket
-        order by coalesce(r.hour_bucket, t.hour_bucket)
+        full outer join compensation_hourly c on c.hour_bucket = coalesce(r.hour_bucket, t.hour_bucket)
+        order by coalesce(r.hour_bucket, t.hour_bucket, c.hour_bucket)
         """,
-        (SPECIAL_CLINIC_ZONE_ID, *record_params, SPECIAL_CLINIC_ZONE_ID, *ticket_params),
+        (
+            SPECIAL_CLINIC_ZONE_ID,
+            *record_params,
+            SPECIAL_CLINIC_ZONE_ID,
+            *ticket_params,
+            SPECIAL_CLINIC_ZONE_ID,
+            *compensation_params,
+        ),
     )
 
 
@@ -1144,25 +1175,66 @@ def load_special_clinic_resource_rewards(conn, week_start=None):
 
 def load_special_clinic_ticket_flows(conn, week_start=None):
     where_clause, params = special_clinic_cycle_filter("clinic_date", week_start)
+    compensation_where, compensation_params = special_clinic_time_filter("create_time", week_start)
     return query_list(
         conn,
         f"""
-        select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
-               coalesce(change_type, 'UNKNOWN') as change_type,
-               coalesce(reason, '') as reason,
-               coalesce(sum(appointment_delta), 0) as appointment_delta_sum,
-               coalesce(sum(gifted_delta), 0) as gifted_delta_sum,
-               coalesce(sum(paid_delta), 0) as paid_delta_sum,
-               coalesce(sum(ingot_cost), 0) as ingot_cost_sum,
-               count(*) as row_count,
-               count(distinct hospital_id) as hospital_count
-        from t_special_clinic_ticket_log
-        where {where_clause}
-        group by label, change_type, reason
-        order by min(create_time) desc, row_count desc
-        limit 60
+        with ticket_flow as (
+            select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
+                   'ticket_log' as source,
+                   coalesce(change_type, 'UNKNOWN') as change_type,
+                   coalesce(reason, '') as reason,
+                   coalesce(sum(appointment_delta), 0) as appointment_delta_sum,
+                   coalesce(sum(gifted_delta), 0) as gifted_delta_sum,
+                   coalesce(sum(paid_delta), 0) as paid_delta_sum,
+                   0::bigint as compensated_ticket_sum,
+                   coalesce(sum(ingot_cost), 0) as ingot_cost_sum,
+                   count(*) as row_count,
+                   count(distinct hospital_id) as hospital_count,
+                   min(create_time) as sort_time
+            from t_special_clinic_ticket_log
+            where {where_clause}
+            group by label, change_type, reason
+        ), compensation_flow as (
+            select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s), 'MM-DD HH24:00') as label,
+                   'compensation_batch' as source,
+                   'COMPENSATION' as change_type,
+                   coalesce(log, '') as reason,
+                   0::bigint as appointment_delta_sum,
+                   0::bigint as gifted_delta_sum,
+                   0::bigint as paid_delta_sum,
+                   coalesce(sum(coalesce(num, 0) * coalesce(success_count, 0)), 0) as compensated_ticket_sum,
+                   0::bigint as ingot_cost_sum,
+                   count(*) as row_count,
+                   coalesce(sum(coalesce(success_count, 0)), 0) as hospital_count,
+                   min(create_time) as sort_time
+            from t_compensation_batch_record
+            where coalesce(item_id, 0) = 1792
+              and coalesce(type, '') = 'item'
+              and coalesce(status, '') = 'SUCCESS'
+              and {compensation_where}
+            group by label, log
+        )
+        select label,
+               source,
+               change_type,
+               reason,
+               appointment_delta_sum,
+               gifted_delta_sum,
+               paid_delta_sum,
+               compensated_ticket_sum,
+               ingot_cost_sum,
+               row_count,
+               hospital_count
+        from (
+            select * from ticket_flow
+            union all
+            select * from compensation_flow
+        ) flow
+        order by sort_time desc, row_count desc
+        limit 80
         """,
-        (SPECIAL_CLINIC_ZONE_ID, *params),
+        (SPECIAL_CLINIC_ZONE_ID, *params, SPECIAL_CLINIC_ZONE_ID, *compensation_params),
     )
 
 
