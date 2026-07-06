@@ -85,6 +85,33 @@
         .page-section[hidden] { display: none; }
         .clinic-table table { min-width: 0; }
         .wide-clinic-table table { min-width: 1160px; }
+        .clinic-inventory-list { display: grid; gap: 12px; }
+        .clinic-inventory-row {
+            border: 1px solid rgba(151, 178, 214, 0.22);
+            background: rgba(7, 17, 31, 0.34);
+            border-radius: 8px;
+            padding: 14px;
+        }
+        .clinic-inventory-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .clinic-inventory-title { font-size: 15px; font-weight: 760; color: var(--text); line-height: 1.35; }
+        .clinic-inventory-meta { color: var(--muted); font-size: 12px; line-height: 1.5; }
+        .clinic-inventory-sections { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 12px; }
+        .clinic-inventory-section { min-width: 0; }
+        .clinic-inventory-section h3 { margin: 0 0 8px; color: #bfe1ff; font-size: 13px; letter-spacing: 0; }
+        .clinic-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+        .clinic-metric { min-width: 0; border-top: 1px solid rgba(151, 178, 214, 0.16); padding-top: 6px; }
+        .clinic-metric-label { color: var(--muted); font-size: 11px; line-height: 1.35; }
+        .clinic-metric-value { margin-top: 3px; color: var(--text); font-size: 15px; font-weight: 730; line-height: 1.25; overflow-wrap: anywhere; }
+        .clinic-metric.is-primary .clinic-metric-value { color: var(--green); }
+        .clinic-metric.is-warning .clinic-metric-value { color: var(--yellow); }
+        .clinic-empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
         .clinic-summary-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
         .mini-value { font-size: 13px; color: var(--muted); line-height: 1.6; }
         .purchase-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 16px; align-items: start; }
@@ -198,6 +225,9 @@
             .tab-btn { min-width: 64px; }
             .stat-panel-head { flex-direction: column; }
             .pager { align-items: flex-start; flex-direction: column; }
+            .clinic-inventory-row { padding: 12px; }
+            .clinic-inventory-sections { grid-template-columns: 1fr; gap: 14px; }
+            .clinic-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             th, td { padding: 9px 8px; font-size: 12px; }
             .table-scroll { overflow-x: auto; overflow-y: visible; }
             .wide-clinic-table table { min-width: 1160px; }
@@ -343,7 +373,7 @@
             </div>
             <div class="panel wide">
                 <h2>每周库存消耗</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>周期开诊日</th><th>状态</th><th>初始</th><th>周总量</th><th>本周已诊</th><th>病历消耗率</th><th>统计剩余</th><th>柜体剩余</th><th>残页预算</th><th>残页已发</th><th>残页奖池率</th><th>周期日</th><th>补仓基数</th><th>累计补仓</th><th>补仓成本</th><th>补仓上限</th><th>近2小时</th><th>预测剩余</th><th>当前触发补仓</th><th>记录已诊</th><th>付费票</th><th>空柜</th><th>首次空柜</th><th>特危入柜</th><th>热度</th></tr></thead><tbody id="clinicCabinetRows"></tbody></table></div>
+                <div class="clinic-inventory-list" id="clinicCabinetRows"></div>
             </div>
             <div class="panel wide">
                 <h2>医院行为 Top 30</h2>
@@ -624,7 +654,7 @@
         renderSimpleRows('clinicResourceRows', view.resourceRewards || [], ['label', 'temporary_patients', 'ingot_reward', 'money_reward', 'prestige_reward', 'glory_reward'], {}, 40);
         renderSimpleRows('clinicPatientRows', view.patientDistribution || [], ['patient_code', 'patient_name', 'tier', 'diagnosis_count', 'hospital_count', 'paid_ticket_count']);
         renderSimpleRows('clinicTicketRows', view.ticketFlows || [], ['label', 'source', 'change_type', 'reason', 'appointment_delta_sum', 'gifted_delta_sum', 'paid_delta_sum', 'ingot_cost_sum', 'row_count', 'hospital_count'], {}, 80);
-        renderSimpleRows('clinicCabinetRows', view.weeklyCabinet || view.dailyCabinet || [], ['clinic_date', 'status', 'initial_total', 'supply_total', 'total_diagnoses', 'consume_rate', 'remaining_total', 'cabinet_remaining_total', 'prescription_page_budget_total', 'prescription_page_awarded_total', 'prescription_page_consume_rate', 'cycle_day', 'base_initial_total', 'replenished_total', 'replenished_equivalent_cost', 'remaining_replenishment_cap', 'recent_2h_diagnoses', 'projected_remaining', 'estimated_replenishment_now', 'diagnosis_count_from_record', 'weekly_cabinet_diagnoses', 'non_canonical_cabinet_diagnoses', 'paid_ticket_count', 'empty_attempt_count', 'depleted_at', 'critical_admitted_count', 'consultation_heat'], {consume_rate: value => `${formatMoney(value)}%`, prescription_page_consume_rate: value => `${formatMoney(value)}%`, replenished_equivalent_cost: value => formatMoney(value)});
+        renderClinicCabinetRows(view.weeklyCabinet || view.dailyCabinet || []);
         renderSimpleRows('clinicHospitalRows', view.hospitalDaily || [], ['hospital_id', 'hospital_name', 'director_name', 'clinic_date', 'diagnosis_count', 'paid_diagnosis_count', 'ticket_purchase_count', 'ingot_cost', 'reward_item_count', 'temporary_patients', 'first_diagnosis_time', 'last_diagnosis_time']);
     }
 
@@ -690,6 +720,91 @@
                 return `<td>${text}</td>`;
             }).join('');
             tbody.appendChild(tr);
+        });
+    }
+
+    function renderClinicCabinetRows(rows) {
+        const container = document.getElementById('clinicCabinetRows');
+        const visibleRows = rows || [];
+        container.innerHTML = '';
+        if (!visibleRows.length) {
+            container.innerHTML = '<div class="clinic-empty">没有数据</div>';
+            return;
+        }
+        visibleRows.forEach(row => {
+            const sections = [
+                {
+                    title: '病历池',
+                    metrics: [
+                        ['周总量', row.supply_total, formatNumber, 'is-primary'],
+                        ['本周已诊', row.total_diagnoses, formatNumber, 'is-primary'],
+                        ['病历消耗率', row.consume_rate, formatPercent, 'is-primary'],
+                        ['统计剩余', row.remaining_total, formatNumber],
+                        ['柜体剩余', row.cabinet_remaining_total, formatNumber],
+                        ['遗留日柜', row.non_canonical_cabinet_diagnoses, formatNumber, Number(row.non_canonical_cabinet_diagnoses || 0) > 0 ? 'is-warning' : '']
+                    ]
+                },
+                {
+                    title: '残页奖池',
+                    metrics: [
+                        ['残页预算', row.prescription_page_budget_total, formatNumber, 'is-primary'],
+                        ['残页已发', row.prescription_page_awarded_total, formatNumber, 'is-primary'],
+                        ['残页奖池率', row.prescription_page_consume_rate, formatPercent, 'is-primary'],
+                        ['补仓基数', row.base_initial_total, formatNumber],
+                        ['累计补仓', row.replenished_total, formatNumber],
+                        ['补仓成本', row.replenished_equivalent_cost, formatMoney]
+                    ]
+                },
+                {
+                    title: '补仓',
+                    metrics: [
+                        ['周期日', row.cycle_day, formatNumber],
+                        ['补仓上限', row.remaining_replenishment_cap, formatNumber],
+                        ['近2小时', row.recent_2h_diagnoses, formatNumber],
+                        ['预测剩余', row.projected_remaining, formatNumber],
+                        ['当前触发补仓', row.estimated_replenishment_now, formatNumber, Number(row.estimated_replenishment_now || 0) > 0 ? 'is-warning' : ''],
+                        ['初始', row.initial_total, formatNumber]
+                    ]
+                },
+                {
+                    title: '对账',
+                    metrics: [
+                        ['记录已诊', row.diagnosis_count_from_record, formatNumber, 'is-primary'],
+                        ['付费票', row.paid_ticket_count, formatNumber],
+                        ['空柜', row.empty_attempt_count, formatNumber],
+                        ['首次空柜', row.depleted_at || '-', value => value],
+                        ['特危入柜', row.critical_admitted_count, formatNumber],
+                        ['热度', row.consultation_heat, formatNumber]
+                    ]
+                }
+            ];
+            const item = document.createElement('div');
+            item.className = 'clinic-inventory-row';
+            item.innerHTML = `
+                <div class="clinic-inventory-head">
+                    <div>
+                        <div class="clinic-inventory-title">${escapeHtml(row.clinic_date || '-')} 周库存</div>
+                        <div class="clinic-inventory-meta">状态 ${escapeHtml(row.status || '-')}</div>
+                    </div>
+                    <div class="clinic-inventory-meta">同一周三主柜体快照，补仓为累计口径</div>
+                </div>
+                <div class="clinic-inventory-sections">
+                    ${sections.map(section => `
+                        <section class="clinic-inventory-section">
+                            <h3>${escapeHtml(section.title)}</h3>
+                            <div class="clinic-metric-grid">
+                                ${section.metrics.map(([label, value, formatter, className]) => `
+                                    <div class="clinic-metric ${className || ''}">
+                                        <div class="clinic-metric-label">${escapeHtml(label)}</div>
+                                        <div class="clinic-metric-value">${escapeHtml(formatter(value))}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </section>
+                    `).join('')}
+                </div>
+            `;
+            container.appendChild(item);
         });
     }
 
@@ -859,6 +974,7 @@
     }
     function formatNumber(value) { return Number(value || 0).toLocaleString('zh-CN'); }
     function formatMoney(value) { return Number(value || 0).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+    function formatPercent(value) { return `${formatMoney(value)}%`; }
     function formatDateTime(value) {
         if (!value) return '-';
         try { return new Date(value).toLocaleString('zh-CN', {hour12: false}); } catch (_) { return value; }

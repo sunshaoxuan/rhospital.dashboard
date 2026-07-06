@@ -65,6 +65,7 @@ docker compose down
 - 后台补偿批次统计只归入奖品口径；例如 `item_id=1792` 的特需门诊票补偿会显示在道具奖品和后台补偿奖品表，并保留批次原因。门诊票流水仅统计 `t_special_clinic_ticket_log`。
 - 顶部百分比分为病历池消耗率和残页奖池消耗率；前者使用周三主柜体 `total_diagnoses / initial_total`，后者使用 `prescription_page_awarded_total / prescription_page_budget_total`。
 - 特需门诊库存消耗率按周统计，周总量取周三周期主柜体行 `initial_total`，分子取同一主柜体行 `total_diagnoses`，主指标剩余取该主柜体行 `remaining_total`；患者记录按周期汇总保留为 `diagnosis_count_from_record`，周内其他柜体消耗保留为 `weekly_cabinet_diagnoses` 和 `non_canonical_cabinet_diagnoses`，用于发现旧部署留下的日粒度记录差异。
+- 特需门诊每周库存消耗展示按业务域分组为病历池、残页奖池、补仓和对账，保留同一周库存快照里的完整字段，减少横向宽表造成的阅读混乱。
 - 特需门诊顶部成功诊断卡片使用每周库存 SQL 同一快照里的 `diagnosis_count_from_record`，避免生产写入活跃时多条独立查询造成同屏数字短暂不一致。
 - 特需门诊补仓统计镜像产品代码 `maybeReplenishCabinet`：周总量已包含 `replenished_total`，诊期补仓字段来自周三周期柜体行的累计落库值；当前生产库没有补仓流水表，页面不伪造每日历史增量，只展示累计补仓、剩余补仓上限、近 2 小时确诊、预测剩余和按当前公式估算的触发补仓量。
 - 特需门诊统计只读查询 `t_special_clinic_patient_record`、`t_special_clinic_ticket_log`、`t_special_clinic_cabinet`、`t_special_clinic_player_state`、`t_backpack`、`t_compensation_batch_record`、`t_log_yuanbao` 和 `t_log_right_bottom`。
