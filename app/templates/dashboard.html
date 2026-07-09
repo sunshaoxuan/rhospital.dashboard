@@ -48,6 +48,26 @@
             font-weight: 650;
         }
         button:hover { background: rgba(84, 167, 255, 0.28); }
+        button:disabled { cursor: progress; opacity: 0.82; }
+        .refresh-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            min-width: 64px;
+        }
+        .refresh-btn.is-loading::before {
+            content: "";
+            width: 13px;
+            height: 13px;
+            border: 2px solid rgba(238, 245, 255, 0.32);
+            border-top-color: var(--text);
+            border-radius: 50%;
+            animation: refreshSpin 0.78s linear infinite;
+        }
+        @keyframes refreshSpin {
+            to { transform: rotate(360deg); }
+        }
 
         .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 16px; }
         .card, .panel {
@@ -254,7 +274,7 @@
         </div>
         <div class="toolbar">
             <span id="generatedAt">等待加载</span>
-            <button id="refreshBtn" type="button">刷新</button>
+            <button id="refreshBtn" class="refresh-btn" type="button" aria-live="polite"><span id="refreshBtnText">刷新</span></button>
         </div>
     </div>
 
@@ -402,6 +422,8 @@
     const charts = {};
     const renderState = {};
     let currentPage = 'overall';
+    let activeRefresh = null;
+    let pendingRefresh = false;
     const statTableState = {tab: 'items', page: 1, pageSize: 20, total: 0};
     const specialClinicState = {data: null, selectedWeekKey: null, latestWeekKey: null, userSelectedWeek: false};
 
@@ -447,7 +469,7 @@
         if (event.key === 'Escape') closeItemModal();
     });
     window.addEventListener('load', () => {
-        loadStats();
+        refreshCurrentPage();
         loadStatTable();
         setInterval(refreshCurrentPage, 60000);
     });
@@ -462,9 +484,33 @@
         refreshCurrentPage();
     }
 
-    function refreshCurrentPage() {
-        if (currentPage === 'specialClinic') loadSpecialClinicStats();
-        else loadStats();
+    async function refreshCurrentPage() {
+        if (activeRefresh) {
+            pendingRefresh = true;
+            return activeRefresh;
+        }
+        setRefreshLoading(true);
+        const refreshPage = currentPage;
+        activeRefresh = (refreshPage === 'specialClinic' ? loadSpecialClinicStats() : loadStats())
+            .finally(() => {
+                activeRefresh = null;
+                if (pendingRefresh) {
+                    pendingRefresh = false;
+                    refreshCurrentPage();
+                } else {
+                    setRefreshLoading(false);
+                }
+            });
+        return activeRefresh;
+    }
+
+    function setRefreshLoading(loading) {
+        const button = document.getElementById('refreshBtn');
+        const label = document.getElementById('refreshBtnText');
+        button.classList.toggle('is-loading', loading);
+        button.disabled = loading;
+        button.setAttribute('aria-busy', loading ? 'true' : 'false');
+        label.textContent = loading ? '刷新中' : '刷新';
     }
 
     async function loadStats() {

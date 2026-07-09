@@ -159,6 +159,11 @@ class AppContractTest(unittest.TestCase):
         html = response.get_data(as_text=True)
 
         self.assertIn("每周库存消耗", html)
+        self.assertIn("refresh-btn", html)
+        self.assertIn("refreshSpin", html)
+        self.assertIn("setRefreshLoading", html)
+        self.assertIn("aria-busy", html)
+        self.assertIn("刷新中", html)
         self.assertIn("门诊票流水", html)
         self.assertIn("后台补偿奖品", html)
         self.assertIn("残页奖池消耗率", html)
