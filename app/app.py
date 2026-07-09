@@ -37,6 +37,68 @@ SPECIAL_CLINIC_ITEM_NAMES = {
     1792: "特需门诊票",
 }
 SPECIAL_CLINIC_EVENT_ITEM_IDS = {1351, 1792}
+BROKER_RULE_BASELINE = [
+    {
+        "relation_type": "FRIEND",
+        "relation_label": "好友",
+        "patient_band": "1-39",
+        "old_money": "10/人，最低200，最高1200",
+        "new_money": "5/人，最低80，最高500",
+        "old_item_chance": 8,
+        "new_item_chance": 3,
+        "retaliation_window": "6小时",
+    },
+    {
+        "relation_type": "FRIEND",
+        "relation_label": "好友",
+        "patient_band": "40-69",
+        "old_money": "10/人，最低200，最高1200",
+        "new_money": "5/人，最低80，最高500",
+        "old_item_chance": 12,
+        "new_item_chance": 5,
+        "retaliation_window": "6小时",
+    },
+    {
+        "relation_type": "FRIEND",
+        "relation_label": "好友",
+        "patient_band": "70+",
+        "old_money": "10/人，最低200，最高1200",
+        "new_money": "5/人，最低80，最高500",
+        "old_item_chance": 18,
+        "new_item_chance": 8,
+        "retaliation_window": "6小时",
+    },
+    {
+        "relation_type": "NON_FRIEND",
+        "relation_label": "非好友",
+        "patient_band": "1-39",
+        "old_money": "25/人，最低500，最高3000",
+        "new_money": "10/人，最低200，最高1200",
+        "old_item_chance": 25,
+        "new_item_chance": 8,
+        "retaliation_window": "12小时",
+    },
+    {
+        "relation_type": "NON_FRIEND",
+        "relation_label": "非好友",
+        "patient_band": "40-69",
+        "old_money": "25/人，最低500，最高3000",
+        "new_money": "10/人，最低200，最高1200",
+        "old_item_chance": 40,
+        "new_item_chance": 12,
+        "retaliation_window": "12小时",
+    },
+    {
+        "relation_type": "NON_FRIEND",
+        "relation_label": "非好友",
+        "patient_band": "70+",
+        "old_money": "25/人，最低500，最高3000",
+        "new_money": "10/人，最低200，最高1200",
+        "old_item_chance": 55,
+        "new_item_chance": 18,
+        "retaliation_window": "12小时",
+    },
+]
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
 
@@ -1625,6 +1687,288 @@ def load_unavailable_stats(error: Exception):
     }
 
 
+def percent(numerator, denominator):
+    if not denominator:
+        return 0
+    return round(float(numerator or 0) * 100 / float(denominator or 0), 2)
+
+
+def add_broker_rates(row):
+    wallet_count = row.get("wallet_count", 0) or 0
+    row["wallet_open_rate"] = percent(row.get("wallet_opened", row.get("opened_count", 0)), wallet_count)
+    row["item_drop_rate"] = percent(row.get("item_drop_wallets", 0), wallet_count)
+    if wallet_count:
+        row["avg_money_per_wallet"] = round(float(row.get("wallet_money", row.get("money_reward", 0)) or 0) / float(wallet_count), 2)
+    else:
+        row["avg_money_per_wallet"] = 0
+    return row
+
+
+def load_broker_stats_from_prod():
+    with prod_connection() as conn:
+        summary = query_one(
+            conn,
+            """
+            with cutoff as (
+                select coalesce(max(update_time), now() at time zone 'UTC') as cutoff_at
+                from t_broker_wallet_rule
+                where enabled = true
+            ),
+            ordinary_success as (
+                select r.create_time,
+                       coalesce(nullif(substring(r.content from '拉走了([0-9]+)位病人'), ''), '0')::int as patients
+                from t_log_right_bottom r
+                where r.create_time >= now() - interval '14 days'
+                  and r.content like '【%%】派遣医托从您的医院拉走了%%位病人%%'
+            ),
+            retaliation_click as (
+                select r.create_time
+                from t_log_right_bottom r
+                where r.create_time >= now() - interval '14 days'
+                  and r.content like '您按名片找到了对方医托，准备反拉一次。%%'
+            ),
+            retaliation_success as (
+                select r.create_time,
+                       coalesce(nullif(substring(r.content from '反拉走了([0-9]+)位病人'), ''), '0')::int as patients
+                from t_log_right_bottom r
+                where r.create_time >= now() - interval '14 days'
+                  and r.content like '【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%'
+            ),
+            retaliation_used as (
+                select used_at as create_time
+                from t_broker_retaliation_voucher
+                where used_at is not null
+                  and used_at >= now() - interval '14 days'
+            ),
+            wallet_enriched as (
+                select w.*,
+                       exists(
+                           select 1
+                           from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
+                           where item.value::int > 0
+                       ) as has_item_drop,
+                       coalesce((
+                           select sum(item.value::int)
+                           from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
+                           where item.value::int > 0
+                       ), 0) as item_drop_quantity
+                from t_broker_wallet_drop w
+                where w.create_time >= now() - interval '14 days'
+            )
+            select
+                (select to_char(cutoff_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') from cutoff) as cutoff_label,
+                (select count(*) from ordinary_success) as ordinary_success_count,
+                (select coalesce(sum(patients), 0) from ordinary_success) as ordinary_patient_count,
+                (select count(*) from ordinary_success o, cutoff c where o.create_time < c.cutoff_at) as pre_ordinary_success_count,
+                (select count(*) from ordinary_success o, cutoff c where o.create_time >= c.cutoff_at) as post_ordinary_success_count,
+                (select count(*) from wallet_enriched) as wallet_count,
+                (select count(*) from wallet_enriched where opened_at is not null) as wallet_opened,
+                (select coalesce(sum(money_reward), 0) from wallet_enriched) as wallet_money,
+                (select coalesce(sum(money_reward), 0) from wallet_enriched where opened_at is not null) as opened_money,
+                (select count(*) from wallet_enriched where has_item_drop) as item_drop_wallets,
+                (select coalesce(sum(item_drop_quantity), 0) from wallet_enriched) as item_drop_quantity,
+                (select count(*) from retaliation_click) as retaliation_click_count,
+                (select count(*) from retaliation_used) as retaliation_success_count,
+                (select coalesce(sum(patients), 0) from retaliation_success) as retaliation_patient_count
+            """,
+            (ZONE_ID,),
+        )
+        add_broker_rates(summary)
+        stage_comparison = query_list(
+            conn,
+            """
+            with cutoff as (
+                select coalesce(max(update_time), now() at time zone 'UTC') as cutoff_at
+                from t_broker_wallet_rule
+                where enabled = true
+            ),
+            ordinary_success as (
+                select r.create_time,
+                       coalesce(nullif(substring(r.content from '拉走了([0-9]+)位病人'), ''), '0')::int as patients
+                from t_log_right_bottom r
+                where r.create_time >= now() - interval '14 days'
+                  and r.content like '【%%】派遣医托从您的医院拉走了%%位病人%%'
+            ),
+            retaliation_click as (
+                select r.create_time
+                from t_log_right_bottom r
+                where r.create_time >= now() - interval '14 days'
+                  and r.content like '您按名片找到了对方医托，准备反拉一次。%%'
+            ),
+            retaliation_success as (
+                select r.create_time,
+                       coalesce(nullif(substring(r.content from '反拉走了([0-9]+)位病人'), ''), '0')::int as patients
+                from t_log_right_bottom r
+                where r.create_time >= now() - interval '14 days'
+                  and r.content like '【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%'
+            ),
+            retaliation_used as (
+                select used_at as create_time
+                from t_broker_retaliation_voucher
+                where used_at is not null
+                  and used_at >= now() - interval '14 days'
+            ),
+            wallet_enriched as (
+                select w.*,
+                       exists(
+                           select 1
+                           from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
+                           where item.value::int > 0
+                       ) as has_item_drop
+                from t_broker_wallet_drop w
+                where w.create_time >= now() - interval '14 days'
+            ),
+            stages(stage_label, sort_order, start_at, end_at) as (
+                select '上线前', 1, now() - interval '14 days', cutoff_at from cutoff
+                union all
+                select '上线后', 2, cutoff_at, now() from cutoff
+            )
+            select stage_label,
+                   (select count(*) from ordinary_success o where o.create_time >= s.start_at and o.create_time < s.end_at) as ordinary_success_count,
+                   (select coalesce(sum(patients), 0) from ordinary_success o where o.create_time >= s.start_at and o.create_time < s.end_at) as ordinary_patient_count,
+                   (select count(*) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at) as wallet_count,
+                   (select count(*) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at and w.opened_at is not null) as wallet_opened,
+                   (select coalesce(sum(money_reward), 0) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at) as wallet_money,
+                   (select count(*) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at and w.has_item_drop) as item_drop_wallets,
+                   (select count(*) from retaliation_click r where r.create_time >= s.start_at and r.create_time < s.end_at) as retaliation_click_count,
+                   (select count(*) from retaliation_used r where r.create_time >= s.start_at and r.create_time < s.end_at) as retaliation_success_count,
+                   (select coalesce(sum(patients), 0) from retaliation_success r where r.create_time >= s.start_at and r.create_time < s.end_at) as retaliation_patient_count
+            from stages s
+            order by sort_order
+            """,
+        )
+        for row in stage_comparison:
+            add_broker_rates(row)
+        relation_band = query_list(
+            conn,
+            """
+            with wallet_enriched as (
+                select w.*,
+                       exists(
+                           select 1
+                           from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
+                           where item.value::int > 0
+                       ) as has_item_drop
+                from t_broker_wallet_drop w
+                where w.create_time >= now() - interval '14 days'
+            )
+            select relation_type,
+                   case
+                       when stolen_patient_count between 1 and 39 then '1-39'
+                       when stolen_patient_count between 40 and 69 then '40-69'
+                       else '70+'
+                   end as patient_band,
+                   count(*) as wallet_count,
+                   coalesce(sum(stolen_patient_count), 0) as ordinary_patient_count,
+                   coalesce(sum(money_reward), 0) as wallet_money,
+                   count(*) filter (where opened_at is not null) as wallet_opened,
+                   count(*) filter (where has_item_drop) as item_drop_wallets
+            from wallet_enriched
+            group by relation_type, patient_band
+            order by relation_type, patient_band
+            """,
+        )
+        for row in relation_band:
+            add_broker_rates(row)
+        daily_trend = query_list(
+            conn,
+            """
+            with days as (
+                select generate_series(
+                    (now() at time zone %s)::date - 13,
+                    (now() at time zone %s)::date,
+                    interval '1 day'
+                )::date as day
+            ),
+            ordinary_success as (
+                select (create_time at time zone 'UTC' at time zone %s)::date as day,
+                       coalesce(nullif(substring(content from '拉走了([0-9]+)位病人'), ''), '0')::int as patients
+                from t_log_right_bottom
+                where create_time >= now() - interval '14 days'
+                  and content like '【%%】派遣医托从您的医院拉走了%%位病人%%'
+            ),
+            retaliation_success as (
+                select (create_time at time zone 'UTC' at time zone %s)::date as day
+                from t_log_right_bottom
+                where create_time >= now() - interval '14 days'
+                  and content like '【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%'
+            ),
+            retaliation_used as (
+                select (used_at at time zone 'UTC' at time zone %s)::date as day
+                from t_broker_retaliation_voucher
+                where used_at is not null
+                  and used_at >= now() - interval '14 days'
+            ),
+            wallet_enriched as (
+                select (create_time at time zone 'UTC' at time zone %s)::date as day,
+                       money_reward,
+                       opened_at
+                from t_broker_wallet_drop
+                where create_time >= now() - interval '14 days'
+            )
+            select d.day::text as day,
+                   coalesce((select count(*) from ordinary_success o where o.day = d.day), 0) as ordinary_success_count,
+                   coalesce((select sum(patients) from ordinary_success o where o.day = d.day), 0) as ordinary_patient_count,
+                   coalesce((select count(*) from wallet_enriched w where w.day = d.day), 0) as wallet_count,
+                   coalesce((select count(*) from wallet_enriched w where w.day = d.day and w.opened_at is not null), 0) as wallet_opened,
+                   coalesce((select sum(money_reward) from wallet_enriched w where w.day = d.day), 0) as wallet_money,
+                   coalesce((select count(*) from retaliation_used r where r.day = d.day), 0) as retaliation_success_count
+            from days d
+            order by d.day
+            """,
+            (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
+        )
+        current_rules = query_list(
+            conn,
+            """
+            select relation_type,
+                   case
+                       when min_patients = 1 and max_patients = 39 then '1-39'
+                       when min_patients = 40 and max_patients = 69 then '40-69'
+                       when min_patients = 70 and max_patients = 0 then '70+'
+                       else concat(min_patients, '-', max_patients)
+                   end as patient_band,
+                   money_per_patient,
+                   min_money,
+                   max_money,
+                   round((item_chance * 100)::numeric, 2) as item_chance_percent,
+                   fallback_money_per_patient,
+                   retaliation_seconds,
+                   to_char(update_time at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as update_label
+            from t_broker_wallet_rule
+            where enabled = true
+            order by relation_type, min_patients
+            """,
+            (ZONE_ID,),
+        )
+    return {
+        "generatedAt": now_in_zone().isoformat(),
+        "zoneId": ZONE_ID,
+        "note": "普通拉人使用目标医院日志口径，反拉使用名片点击日志和反拉成功日志口径；钱包指标只归因普通成功拉人。",
+        "summary": summary,
+        "stageComparison": stage_comparison,
+        "relationBand": relation_band,
+        "dailyTrend": daily_trend,
+        "currentRules": current_rules,
+        "ruleComparison": BROKER_RULE_BASELINE,
+    }
+
+
+def load_unavailable_broker_stats(error: Exception):
+    return {
+        "generatedAt": now_in_zone().isoformat(),
+        "zoneId": ZONE_ID,
+        "sourceError": str(error),
+        "note": f"医托拉人数据源暂不可用：{error}",
+        "summary": {},
+        "stageComparison": [],
+        "relationBand": [],
+        "dailyTrend": [],
+        "currentRules": [],
+        "ruleComparison": BROKER_RULE_BASELINE,
+    }
+
+
 def load_unavailable_special_clinic_stats(error: Exception):
     return {
         "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
@@ -1681,6 +2025,15 @@ def special_clinic_stats_api():
     except Exception as exc:
         app.logger.warning("special clinic stats unavailable: %s", exc)
         return jsonify(load_unavailable_special_clinic_stats(exc))
+
+
+@app.get("/api/broker-stats")
+def broker_stats_api():
+    try:
+        return jsonify(load_broker_stats_from_prod())
+    except Exception as exc:
+        app.logger.warning("broker stats unavailable: %s", exc)
+        return jsonify(load_unavailable_broker_stats(exc))
 
 
 @app.get("/api/stat-table")

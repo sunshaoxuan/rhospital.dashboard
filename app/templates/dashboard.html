@@ -281,6 +281,7 @@
     <div class="tabs site-tabs" role="tablist" aria-label="看板页面">
         <button class="tab-btn active" type="button" data-page-tab="overall">运营总览</button>
         <button class="tab-btn" type="button" data-page-tab="specialClinic">特需门诊</button>
+        <button class="tab-btn" type="button" data-page-tab="broker">医托拉人</button>
     </div>
 
     <div id="error" class="error"></div>
@@ -401,6 +402,41 @@
             </div>
         </section>
     </section>
+
+    <section id="brokerPage" class="page-section" hidden>
+        <section class="cards clinic-summary-grid">
+            <div class="card"><div class="label">普通拉人次数</div><div class="value" id="brokerOrdinaryCount">-</div><div class="hint" id="brokerOrdinaryHint">近14日目标医院日志</div></div>
+            <div class="card"><div class="label">成功拉走病人</div><div class="value" id="brokerPatientCount">-</div><div class="hint">普通拉人，不含名片反拉</div></div>
+            <div class="card"><div class="label">钱包生成次数</div><div class="value" id="brokerWalletCount">-</div><div class="hint">仅归因普通成功拉人</div></div>
+            <div class="card"><div class="label">钱包打开率</div><div class="value" id="brokerWalletOpenRate">-</div><div class="hint" id="brokerWalletOpenHint">-</div></div>
+            <div class="card"><div class="label">生成金币总量</div><div class="value" id="brokerMoneyTotal">-</div><div class="hint" id="brokerMoneyHint">-</div></div>
+            <div class="card"><div class="label">平均每钱包金币</div><div class="value" id="brokerAvgMoney">-</div><div class="hint">按生成钱包口径</div></div>
+            <div class="card"><div class="label">道具掉落率</div><div class="value" id="brokerItemDropRate">-</div><div class="hint" id="brokerItemDropHint">-</div></div>
+            <div class="card"><div class="label">名片反拉</div><div class="value" id="brokerRetaliationSuccess">-</div><div class="hint" id="brokerRetaliationHint">-</div></div>
+        </section>
+
+        <section class="grid">
+            <div class="panel"><h2>近14日医托链路趋势</h2><div class="chart-box"><canvas id="brokerDailyChart"></canvas></div><div class="note" id="brokerTrendNote">普通拉人和反拉分开统计，钱包只归因普通成功拉人。</div></div>
+            <div class="panel"><h2>钱包金币趋势</h2><div class="chart-box"><canvas id="brokerMoneyChart"></canvas></div><div class="note">金币为钱包生成金额，打开率另列。</div></div>
+            <div class="panel wide">
+                <h2>上线前后变化</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>阶段</th><th>普通拉人次数</th><th>拉走病人</th><th>钱包生成</th><th>钱包打开</th><th>打开率</th><th>生成金币</th><th>平均金币</th><th>道具掉落钱包</th><th>掉落率</th><th>反拉点击</th><th>反拉成功</th><th>反拉病人</th></tr></thead><tbody id="brokerStageRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>好友和非好友，按拉走人数分段</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>关系</th><th>拉走人数段</th><th>钱包生成</th><th>普通拉走病人</th><th>钱包打开</th><th>打开率</th><th>生成金币</th><th>平均金币</th><th>道具掉落钱包</th><th>掉落率</th></tr></thead><tbody id="brokerRelationRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>钱包规则前后对比</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>关系</th><th>拉走人数段</th><th>原金币</th><th>新金币</th><th>原道具概率</th><th>新道具概率</th><th>反拉窗口</th></tr></thead><tbody id="brokerRuleRows"></tbody></table></div>
+                <div class="note" id="brokerRuleNote">兜底金币从 5金币/人 降为 2金币/人；当前生产规则来自 t_broker_wallet_rule。</div>
+            </div>
+            <div class="panel wide">
+                <h2>当前生产规则</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>关系</th><th>拉走人数段</th><th>金币/人</th><th>最低金币</th><th>最高金币</th><th>道具概率</th><th>兜底金币/人</th><th>反拉窗口秒</th><th>更新时间</th></tr></thead><tbody id="brokerCurrentRuleRows"></tbody></table></div>
+            </div>
+        </section>
+    </section>
 </main>
 
 <div class="modal-backdrop" id="itemModal" aria-hidden="true">
@@ -475,12 +511,13 @@
     });
 
     function switchPage(page) {
-        currentPage = page === 'specialClinic' ? 'specialClinic' : 'overall';
+        currentPage = ['specialClinic', 'broker'].includes(page) ? page : 'overall';
         document.querySelectorAll('[data-page-tab]').forEach(button => {
             button.classList.toggle('active', button.dataset.pageTab === currentPage);
         });
         document.getElementById('overallPage').hidden = currentPage !== 'overall';
         document.getElementById('specialClinicPage').hidden = currentPage !== 'specialClinic';
+        document.getElementById('brokerPage').hidden = currentPage !== 'broker';
         refreshCurrentPage();
     }
 
@@ -491,7 +528,12 @@
         }
         setRefreshLoading(true);
         const refreshPage = currentPage;
-        activeRefresh = (refreshPage === 'specialClinic' ? loadSpecialClinicStats() : loadStats())
+        const refreshPromise = refreshPage === 'specialClinic'
+            ? loadSpecialClinicStats()
+            : refreshPage === 'broker'
+                ? loadBrokerStats()
+                : loadStats();
+        activeRefresh = refreshPromise
             .finally(() => {
                 activeRefresh = null;
                 if (pendingRefresh) {
@@ -540,6 +582,19 @@
         }
     }
 
+    async function loadBrokerStats() {
+        const error = document.getElementById('error');
+        error.style.display = 'none';
+        try {
+            const response = await fetch('api/broker-stats', {cache: 'no-store'});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            renderBrokerStats(await response.json());
+        } catch (e) {
+            error.textContent = `读取医托拉人统计失败：${e.message || e}`;
+            error.style.display = 'block';
+        }
+    }
+
     function render(data) {
         const overallSignature = stableStringify({
             summary: data.summary || {}, note: data.note || '', zoneId: data.zoneId || '',
@@ -570,6 +625,95 @@
         renderItemUseChart(data.itemUsages || []);
         renderItemActivityRows('itemPurchaseRows', data.itemPurchases || [], true);
         renderItemActivityRows('itemUseRows', data.itemUsages || [], false);
+    }
+
+    function renderBrokerStats(data) {
+        const signature = stableStringify({
+            generatedAt: data.generatedAt,
+            zoneId: data.zoneId,
+            sourceError: data.sourceError || '',
+            summary: data.summary || {},
+            stageComparison: data.stageComparison || [],
+            relationBand: data.relationBand || [],
+            dailyTrend: data.dailyTrend || [],
+            currentRules: data.currentRules || [],
+            ruleComparison: data.ruleComparison || [],
+        });
+        if (renderState.brokerSignature === signature) return;
+        renderState.brokerSignature = signature;
+        if (data.sourceError) {
+            const error = document.getElementById('error');
+            error.textContent = `医托拉人数据源暂不可用：${data.sourceError}`;
+            error.style.display = 'block';
+        }
+        const s = data.summary || {};
+        setText('generatedAt', `更新时间 ${formatDateTime(data.generatedAt)}，医托统计时区 ${data.zoneId || '-'}`);
+        setText('brokerOrdinaryCount', formatNumber(s.ordinary_success_count));
+        setText('brokerOrdinaryHint', `上线前 ${formatNumber(s.pre_ordinary_success_count)}，上线后 ${formatNumber(s.post_ordinary_success_count)}，分界 ${s.cutoff_label || '-'}`);
+        setText('brokerPatientCount', formatNumber(s.ordinary_patient_count));
+        setText('brokerWalletCount', formatNumber(s.wallet_count));
+        setText('brokerWalletOpenRate', formatPercent(s.wallet_open_rate));
+        setText('brokerWalletOpenHint', `已打开 ${formatNumber(s.wallet_opened)} / 生成 ${formatNumber(s.wallet_count)}`);
+        setText('brokerMoneyTotal', formatNumber(s.wallet_money));
+        setText('brokerMoneyHint', `已打开实发 ${formatNumber(s.opened_money)}，兜底金币新档位 2金币/人`);
+        setText('brokerAvgMoney', formatMoney(s.avg_money_per_wallet));
+        setText('brokerItemDropRate', formatPercent(s.item_drop_rate));
+        setText('brokerItemDropHint', `掉落钱包 ${formatNumber(s.item_drop_wallets)}，道具数量 ${formatNumber(s.item_drop_quantity)}`);
+        setText('brokerRetaliationSuccess', formatNumber(s.retaliation_success_count));
+        setText('brokerRetaliationHint', `点击 ${formatNumber(s.retaliation_click_count)}，反拉病人 ${formatNumber(s.retaliation_patient_count)}`);
+        setText('brokerTrendNote', data.note || '普通拉人和反拉分开统计，钱包只归因普通成功拉人。');
+        renderBrokerDailyChart(data.dailyTrend || []);
+        renderBrokerMoneyChart(data.dailyTrend || []);
+        renderSimpleRows('brokerStageRows', data.stageComparison || [], ['stage_label', 'ordinary_success_count', 'ordinary_patient_count', 'wallet_count', 'wallet_opened', 'wallet_open_rate', 'wallet_money', 'avg_money_per_wallet', 'item_drop_wallets', 'item_drop_rate', 'retaliation_click_count', 'retaliation_success_count', 'retaliation_patient_count'], {
+            wallet_open_rate: value => formatPercent(value),
+            item_drop_rate: value => formatPercent(value),
+            avg_money_per_wallet: value => formatMoney(value),
+        });
+        renderSimpleRows('brokerRelationRows', data.relationBand || [], ['relation_type', 'patient_band', 'wallet_count', 'ordinary_patient_count', 'wallet_opened', 'wallet_open_rate', 'wallet_money', 'avg_money_per_wallet', 'item_drop_wallets', 'item_drop_rate'], {
+            relation_type: value => brokerRelationLabel(value),
+            wallet_open_rate: value => formatPercent(value),
+            item_drop_rate: value => formatPercent(value),
+            avg_money_per_wallet: value => formatMoney(value),
+        });
+        renderSimpleRows('brokerRuleRows', data.ruleComparison || [], ['relation_label', 'patient_band', 'old_money', 'new_money', 'old_item_chance', 'new_item_chance', 'retaliation_window'], {
+            old_item_chance: value => formatPercent(value),
+            new_item_chance: value => formatPercent(value),
+        });
+        renderSimpleRows('brokerCurrentRuleRows', data.currentRules || [], ['relation_type', 'patient_band', 'money_per_patient', 'min_money', 'max_money', 'item_chance_percent', 'fallback_money_per_patient', 'retaliation_seconds', 'update_label'], {
+            relation_type: value => brokerRelationLabel(value),
+            item_chance_percent: value => formatPercent(value),
+        });
+    }
+
+    function renderBrokerDailyChart(rows) {
+        upsertChart('brokerDailyChart', 'line', 'brokerDailyChart', {
+            labels: rows.map(row => row.day),
+            datasets: [
+                {label: '普通拉人', data: rows.map(row => row.ordinary_success_count), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.14)', tension: 0.32},
+                {label: '钱包生成', data: rows.map(row => row.wallet_count), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32},
+                {label: '反拉成功', data: rows.map(row => row.retaliation_success_count), borderColor: '#ff6b86', backgroundColor: 'rgba(255, 107, 134, 0.14)', tension: 0.32}
+            ]
+        });
+    }
+
+    function renderBrokerMoneyChart(rows) {
+        upsertChart('brokerMoneyChart', 'bar', 'brokerMoneyChart', {
+            labels: rows.map(row => row.day),
+            datasets: [
+                {label: '生成金币', data: rows.map(row => row.wallet_money), backgroundColor: 'rgba(255, 209, 102, 0.68)'},
+                {label: '打开钱包', type: 'line', data: rows.map(row => row.wallet_opened), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.14)', tension: 0.32, yAxisID: 'count'}
+            ]
+        }, {
+            scales: {
+                x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
+                y: {position: 'left', ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
+                count: {position: 'right', ticks: {color: '#b898ff'}, grid: {drawOnChartArea: false}, beginAtZero: true}
+            }
+        });
+    }
+
+    function brokerRelationLabel(value) {
+        return value === 'FRIEND' ? '好友' : value === 'NON_FRIEND' ? '非好友' : escapeHtml(value || '-');
     }
 
     function renderOnlineChart(rows) {

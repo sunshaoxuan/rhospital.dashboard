@@ -25,6 +25,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/healthz", rules)
         self.assertIn("/api/stats", rules)
         self.assertIn("/api/special-clinic-stats", rules)
+        self.assertIn("/api/broker-stats", rules)
         self.assertIn("/api/stat-table", rules)
         self.assertIn("/api/item-activity-details", rules)
 
@@ -35,9 +36,43 @@ class AppContractTest(unittest.TestCase):
 
         self.assertIn('data-page-tab="overall"', html)
         self.assertIn('data-page-tab="specialClinic"', html)
+        self.assertIn('data-page-tab="broker"', html)
         self.assertIn('id="specialClinicPage"', html)
+        self.assertIn('id="brokerPage"', html)
         self.assertIn('id="clinicWeekTabs"', html)
         self.assertIn("data-clinic-week", html)
+
+    def test_dashboard_has_broker_stats_page(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn("医托拉人", html)
+        self.assertIn("api/broker-stats", html)
+        self.assertIn("renderBrokerStats", html)
+        self.assertIn("普通拉人次数", html)
+        self.assertIn("钱包生成次数", html)
+        self.assertIn("钱包打开率", html)
+        self.assertIn("道具掉落率", html)
+        self.assertIn("名片反拉", html)
+        self.assertIn("上线前后变化", html)
+        self.assertIn("好友和非好友，按拉走人数分段", html)
+        self.assertIn("钱包规则前后对比", html)
+
+    def test_broker_stats_query_separates_wallet_and_retaliation_sources(self):
+        source = Path("app/app.py").read_text(encoding="utf-8")
+
+        self.assertIn("load_broker_stats_from_prod", source)
+        self.assertIn("t_broker_wallet_drop", source)
+        self.assertIn("t_broker_retaliation_voucher", source)
+        self.assertIn("t_broker_wallet_rule", source)
+        self.assertIn("【%%】派遣医托从您的医院拉走了%%位病人%%", source)
+        self.assertIn("【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%", source)
+        self.assertIn("您按名片找到了对方医托，准备反拉一次。%%", source)
+        self.assertIn("wallet_count", source)
+        self.assertIn("relation_type", source)
+        self.assertIn("patient_band", source)
+        self.assertIn("BROKER_RULE_BASELINE", source)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()
