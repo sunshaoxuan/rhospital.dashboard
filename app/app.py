@@ -1717,28 +1717,32 @@ def load_broker_stats_from_prod():
             ordinary_success as (
                 select r.create_time,
                        coalesce(nullif(substring(r.content from '拉走了([0-9]+)位病人'), ''), '0')::int as patients
-                from t_log_right_bottom r
+                from t_log_right_bottom r, cutoff c
                 where r.create_time >= now() - interval '14 days'
+                  and r.create_time >= c.cutoff_at
                   and r.content like '【%%】派遣医托从您的医院拉走了%%位病人%%'
             ),
             retaliation_click as (
                 select r.create_time
-                from t_log_right_bottom r
+                from t_log_right_bottom r, cutoff c
                 where r.create_time >= now() - interval '14 days'
+                  and r.create_time >= c.cutoff_at
                   and r.content like '您按名片找到了对方医托，准备反拉一次。%%'
             ),
             retaliation_success as (
                 select r.create_time,
                        coalesce(nullif(substring(r.content from '反拉走了([0-9]+)位病人'), ''), '0')::int as patients
-                from t_log_right_bottom r
+                from t_log_right_bottom r, cutoff c
                 where r.create_time >= now() - interval '14 days'
+                  and r.create_time >= c.cutoff_at
                   and r.content like '【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%'
             ),
             retaliation_used as (
                 select used_at as create_time
-                from t_broker_retaliation_voucher
+                from t_broker_retaliation_voucher, cutoff c
                 where used_at is not null
                   and used_at >= now() - interval '14 days'
+                  and used_at >= c.cutoff_at
             ),
             wallet_enriched as (
                 select w.*,
@@ -1752,15 +1756,14 @@ def load_broker_stats_from_prod():
                            from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
                            where item.value::int > 0
                        ), 0) as item_drop_quantity
-                from t_broker_wallet_drop w
+                from t_broker_wallet_drop w, cutoff c
                 where w.create_time >= now() - interval '14 days'
+                  and w.create_time >= c.cutoff_at
             )
             select
                 (select to_char(cutoff_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') from cutoff) as cutoff_label,
                 (select count(*) from ordinary_success) as ordinary_success_count,
                 (select coalesce(sum(patients), 0) from ordinary_success) as ordinary_patient_count,
-                (select count(*) from ordinary_success o, cutoff c where o.create_time < c.cutoff_at) as pre_ordinary_success_count,
-                (select count(*) from ordinary_success o, cutoff c where o.create_time >= c.cutoff_at) as post_ordinary_success_count,
                 (select count(*) from wallet_enriched) as wallet_count,
                 (select count(*) from wallet_enriched where opened_at is not null) as wallet_opened,
                 (select coalesce(sum(money_reward), 0) from wallet_enriched) as wallet_money,
@@ -1785,28 +1788,32 @@ def load_broker_stats_from_prod():
             ordinary_success as (
                 select r.create_time,
                        coalesce(nullif(substring(r.content from '拉走了([0-9]+)位病人'), ''), '0')::int as patients
-                from t_log_right_bottom r
+                from t_log_right_bottom r, cutoff c
                 where r.create_time >= now() - interval '14 days'
+                  and r.create_time >= c.cutoff_at
                   and r.content like '【%%】派遣医托从您的医院拉走了%%位病人%%'
             ),
             retaliation_click as (
                 select r.create_time
-                from t_log_right_bottom r
+                from t_log_right_bottom r, cutoff c
                 where r.create_time >= now() - interval '14 days'
+                  and r.create_time >= c.cutoff_at
                   and r.content like '您按名片找到了对方医托，准备反拉一次。%%'
             ),
             retaliation_success as (
                 select r.create_time,
                        coalesce(nullif(substring(r.content from '反拉走了([0-9]+)位病人'), ''), '0')::int as patients
-                from t_log_right_bottom r
+                from t_log_right_bottom r, cutoff c
                 where r.create_time >= now() - interval '14 days'
+                  and r.create_time >= c.cutoff_at
                   and r.content like '【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%'
             ),
             retaliation_used as (
                 select used_at as create_time
-                from t_broker_retaliation_voucher
+                from t_broker_retaliation_voucher, cutoff c
                 where used_at is not null
                   and used_at >= now() - interval '14 days'
+                  and used_at >= c.cutoff_at
             ),
             wallet_enriched as (
                 select w.*,
@@ -1815,13 +1822,12 @@ def load_broker_stats_from_prod():
                            from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
                            where item.value::int > 0
                        ) as has_item_drop
-                from t_broker_wallet_drop w
+                from t_broker_wallet_drop w, cutoff c
                 where w.create_time >= now() - interval '14 days'
+                  and w.create_time >= c.cutoff_at
             ),
             stages(stage_label, sort_order, start_at, end_at) as (
-                select '上线前', 1, now() - interval '14 days', cutoff_at from cutoff
-                union all
-                select '上线后', 2, cutoff_at, now() from cutoff
+                select '钱包上线后', 1, cutoff_at, now() at time zone 'UTC' from cutoff
             )
             select stage_label,
                    (select count(*) from ordinary_success o where o.create_time >= s.start_at and o.create_time < s.end_at) as ordinary_success_count,
@@ -1842,15 +1848,21 @@ def load_broker_stats_from_prod():
         relation_band = query_list(
             conn,
             """
-            with wallet_enriched as (
+            with cutoff as (
+                select coalesce(max(update_time), now() at time zone 'UTC') as cutoff_at
+                from t_broker_wallet_rule
+                where enabled = true
+            ),
+            wallet_enriched as (
                 select w.*,
                        exists(
                            select 1
                            from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
                            where item.value::int > 0
                        ) as has_item_drop
-                from t_broker_wallet_drop w
+                from t_broker_wallet_drop w, cutoff c
                 where w.create_time >= now() - interval '14 days'
+                  and w.create_time >= c.cutoff_at
             )
             select relation_type,
                    case
@@ -1873,9 +1885,17 @@ def load_broker_stats_from_prod():
         daily_trend = query_list(
             conn,
             """
-            with days as (
+            with cutoff as (
+                select coalesce(max(update_time), now() at time zone 'UTC') as cutoff_at
+                from t_broker_wallet_rule
+                where enabled = true
+            ),
+            days as (
                 select generate_series(
-                    (now() at time zone %s)::date - 13,
+                    greatest(
+                        (select (cutoff_at at time zone 'UTC' at time zone %s)::date from cutoff),
+                        (now() at time zone %s)::date - 13
+                    ),
                     (now() at time zone %s)::date,
                     interval '1 day'
                 )::date as day
@@ -1883,28 +1903,32 @@ def load_broker_stats_from_prod():
             ordinary_success as (
                 select (create_time at time zone 'UTC' at time zone %s)::date as day,
                        coalesce(nullif(substring(content from '拉走了([0-9]+)位病人'), ''), '0')::int as patients
-                from t_log_right_bottom
+                from t_log_right_bottom, cutoff c
                 where create_time >= now() - interval '14 days'
+                  and create_time >= c.cutoff_at
                   and content like '【%%】派遣医托从您的医院拉走了%%位病人%%'
             ),
             retaliation_success as (
                 select (create_time at time zone 'UTC' at time zone %s)::date as day
-                from t_log_right_bottom
+                from t_log_right_bottom, cutoff c
                 where create_time >= now() - interval '14 days'
+                  and create_time >= c.cutoff_at
                   and content like '【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%'
             ),
             retaliation_used as (
                 select (used_at at time zone 'UTC' at time zone %s)::date as day
-                from t_broker_retaliation_voucher
+                from t_broker_retaliation_voucher, cutoff c
                 where used_at is not null
                   and used_at >= now() - interval '14 days'
+                  and used_at >= c.cutoff_at
             ),
             wallet_enriched as (
                 select (create_time at time zone 'UTC' at time zone %s)::date as day,
                        money_reward,
                        opened_at
-                from t_broker_wallet_drop
+                from t_broker_wallet_drop, cutoff c
                 where create_time >= now() - interval '14 days'
+                  and create_time >= c.cutoff_at
             )
             select d.day::text as day,
                    coalesce((select count(*) from ordinary_success o where o.day = d.day), 0) as ordinary_success_count,
@@ -1916,7 +1940,7 @@ def load_broker_stats_from_prod():
             from days d
             order by d.day
             """,
-            (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
+            (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
         )
         current_rules = query_list(
             conn,
@@ -1944,7 +1968,7 @@ def load_broker_stats_from_prod():
     return {
         "generatedAt": now_in_zone().isoformat(),
         "zoneId": ZONE_ID,
-        "note": "普通拉人使用目标医院日志口径，反拉使用名片点击日志和反拉成功日志口径；钱包指标只归因普通成功拉人。",
+        "note": "统计窗口从医托钱包规则上线时间开始；普通拉人使用目标医院日志口径，反拉使用名片点击日志和反拉成功日志口径；钱包指标只归因普通成功拉人。",
         "summary": summary,
         "stageComparison": stage_comparison,
         "relationBand": relation_band,

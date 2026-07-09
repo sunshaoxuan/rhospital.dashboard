@@ -55,7 +55,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("钱包打开率", html)
         self.assertIn("道具掉落率", html)
         self.assertIn("名片反拉", html)
-        self.assertIn("上线前后变化", html)
+        self.assertIn("上线后统计明细", html)
+        self.assertIn("钱包上线后医托链路趋势", html)
         self.assertIn("好友和非好友，按拉走人数分段", html)
         self.assertIn("钱包规则前后对比", html)
 
@@ -66,6 +67,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("t_broker_wallet_drop", source)
         self.assertIn("t_broker_retaliation_voucher", source)
         self.assertIn("t_broker_wallet_rule", source)
+        self.assertIn("cutoff_at", source)
+        self.assertIn("钱包上线后", source)
         self.assertIn("【%%】派遣医托从您的医院拉走了%%位病人%%", source)
         self.assertIn("【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%", source)
         self.assertIn("您按名片找到了对方医托，准备反拉一次。%%", source)
@@ -73,6 +76,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("relation_type", source)
         self.assertIn("patient_band", source)
         self.assertIn("BROKER_RULE_BASELINE", source)
+        self.assertNotIn("pre_ordinary_success_count", source)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()

@@ -405,7 +405,7 @@
 
     <section id="brokerPage" class="page-section" hidden>
         <section class="cards clinic-summary-grid">
-            <div class="card"><div class="label">普通拉人次数</div><div class="value" id="brokerOrdinaryCount">-</div><div class="hint" id="brokerOrdinaryHint">近14日目标医院日志</div></div>
+            <div class="card"><div class="label">普通拉人次数</div><div class="value" id="brokerOrdinaryCount">-</div><div class="hint" id="brokerOrdinaryHint">钱包上线后目标医院日志</div></div>
             <div class="card"><div class="label">成功拉走病人</div><div class="value" id="brokerPatientCount">-</div><div class="hint">普通拉人，不含名片反拉</div></div>
             <div class="card"><div class="label">钱包生成次数</div><div class="value" id="brokerWalletCount">-</div><div class="hint">仅归因普通成功拉人</div></div>
             <div class="card"><div class="label">钱包打开率</div><div class="value" id="brokerWalletOpenRate">-</div><div class="hint" id="brokerWalletOpenHint">-</div></div>
@@ -416,10 +416,10 @@
         </section>
 
         <section class="grid">
-            <div class="panel"><h2>近14日医托链路趋势</h2><div class="chart-box"><canvas id="brokerDailyChart"></canvas></div><div class="note" id="brokerTrendNote">普通拉人和反拉分开统计，钱包只归因普通成功拉人。</div></div>
+            <div class="panel"><h2>钱包上线后医托链路趋势</h2><div class="chart-box"><canvas id="brokerDailyChart"></canvas></div><div class="note" id="brokerTrendNote">普通拉人和反拉分开统计，钱包只归因普通成功拉人。</div></div>
             <div class="panel"><h2>钱包金币趋势</h2><div class="chart-box"><canvas id="brokerMoneyChart"></canvas></div><div class="note">金币为钱包生成金额，打开率另列。</div></div>
             <div class="panel wide">
-                <h2>上线前后变化</h2>
+                <h2>上线后统计明细</h2>
                 <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>阶段</th><th>普通拉人次数</th><th>拉走病人</th><th>钱包生成</th><th>钱包打开</th><th>打开率</th><th>生成金币</th><th>平均金币</th><th>道具掉落钱包</th><th>掉落率</th><th>反拉点击</th><th>反拉成功</th><th>反拉病人</th></tr></thead><tbody id="brokerStageRows"></tbody></table></div>
             </div>
             <div class="panel wide">
@@ -649,7 +649,7 @@
         const s = data.summary || {};
         setText('generatedAt', `更新时间 ${formatDateTime(data.generatedAt)}，医托统计时区 ${data.zoneId || '-'}`);
         setText('brokerOrdinaryCount', formatNumber(s.ordinary_success_count));
-        setText('brokerOrdinaryHint', `上线前 ${formatNumber(s.pre_ordinary_success_count)}，上线后 ${formatNumber(s.post_ordinary_success_count)}，分界 ${s.cutoff_label || '-'}`);
+        setText('brokerOrdinaryHint', `钱包上线 ${s.cutoff_label || '-'} 后`);
         setText('brokerPatientCount', formatNumber(s.ordinary_patient_count));
         setText('brokerWalletCount', formatNumber(s.wallet_count));
         setText('brokerWalletOpenRate', formatPercent(s.wallet_open_rate));
