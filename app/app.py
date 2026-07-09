@@ -37,68 +37,6 @@ SPECIAL_CLINIC_ITEM_NAMES = {
     1792: "特需门诊票",
 }
 SPECIAL_CLINIC_EVENT_ITEM_IDS = {1351, 1792}
-BROKER_RULE_BASELINE = [
-    {
-        "relation_type": "FRIEND",
-        "relation_label": "好友",
-        "patient_band": "1-39",
-        "old_money": "10/人，最低200，最高1200",
-        "new_money": "5/人，最低80，最高500",
-        "old_item_chance": 8,
-        "new_item_chance": 3,
-        "retaliation_window": "6小时",
-    },
-    {
-        "relation_type": "FRIEND",
-        "relation_label": "好友",
-        "patient_band": "40-69",
-        "old_money": "10/人，最低200，最高1200",
-        "new_money": "5/人，最低80，最高500",
-        "old_item_chance": 12,
-        "new_item_chance": 5,
-        "retaliation_window": "6小时",
-    },
-    {
-        "relation_type": "FRIEND",
-        "relation_label": "好友",
-        "patient_band": "70+",
-        "old_money": "10/人，最低200，最高1200",
-        "new_money": "5/人，最低80，最高500",
-        "old_item_chance": 18,
-        "new_item_chance": 8,
-        "retaliation_window": "6小时",
-    },
-    {
-        "relation_type": "NON_FRIEND",
-        "relation_label": "非好友",
-        "patient_band": "1-39",
-        "old_money": "25/人，最低500，最高3000",
-        "new_money": "10/人，最低200，最高1200",
-        "old_item_chance": 25,
-        "new_item_chance": 8,
-        "retaliation_window": "12小时",
-    },
-    {
-        "relation_type": "NON_FRIEND",
-        "relation_label": "非好友",
-        "patient_band": "40-69",
-        "old_money": "25/人，最低500，最高3000",
-        "new_money": "10/人，最低200，最高1200",
-        "old_item_chance": 40,
-        "new_item_chance": 12,
-        "retaliation_window": "12小时",
-    },
-    {
-        "relation_type": "NON_FRIEND",
-        "relation_label": "非好友",
-        "patient_band": "70+",
-        "old_money": "25/人，最低500，最高3000",
-        "new_money": "10/人，最低200，最高1200",
-        "old_item_chance": 55,
-        "new_item_chance": 18,
-        "retaliation_window": "12小时",
-    },
-]
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
 
@@ -1974,7 +1912,6 @@ def load_broker_stats_from_prod():
         "relationBand": relation_band,
         "dailyTrend": daily_trend,
         "currentRules": current_rules,
-        "ruleComparison": BROKER_RULE_BASELINE,
     }
 
 
@@ -1989,7 +1926,6 @@ def load_unavailable_broker_stats(error: Exception):
         "relationBand": [],
         "dailyTrend": [],
         "currentRules": [],
-        "ruleComparison": BROKER_RULE_BASELINE,
     }
 
 

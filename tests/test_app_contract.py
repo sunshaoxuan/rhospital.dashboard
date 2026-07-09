@@ -58,7 +58,11 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("上线后统计明细", html)
         self.assertIn("钱包上线后医托链路趋势", html)
         self.assertIn("好友和非好友，按拉走人数分段", html)
-        self.assertIn("钱包规则前后对比", html)
+        self.assertIn("当前钱包规则", html)
+        self.assertIn("钱包玩法上线后才有金币和道具掉落机会", html)
+        self.assertNotIn("钱包规则前后对比", html)
+        self.assertNotIn("原金币", html)
+        self.assertNotIn("新金币", html)
 
     def test_broker_stats_query_separates_wallet_and_retaliation_sources(self):
         source = Path("app/app.py").read_text(encoding="utf-8")
@@ -75,7 +79,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("wallet_count", source)
         self.assertIn("relation_type", source)
         self.assertIn("patient_band", source)
-        self.assertIn("BROKER_RULE_BASELINE", source)
+        self.assertNotIn("BROKER_RULE_BASELINE", source)
         self.assertNotIn("pre_ordinary_success_count", source)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
