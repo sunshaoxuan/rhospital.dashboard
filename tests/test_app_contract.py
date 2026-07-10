@@ -51,7 +51,6 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("api/broker-stats", html)
         self.assertIn("renderBrokerStats", html)
         self.assertIn("普通拉人次数", html)
-        self.assertIn("钱包生成次数", html)
         self.assertIn("钱包打开率", html)
         self.assertIn("道具掉落率", html)
         self.assertIn("名片反拉", html)
@@ -65,6 +64,8 @@ class AppContractTest(unittest.TestCase):
         self.assertNotIn("钱包规则前后对比", html)
         self.assertNotIn("原金币", html)
         self.assertNotIn("新金币", html)
+        self.assertNotIn("钱包生成次数", html)
+        self.assertNotIn("label: '钱包生成'", html)
 
     def test_broker_stats_query_separates_wallet_and_retaliation_sources(self):
         source = Path("app/app.py").read_text(encoding="utf-8")

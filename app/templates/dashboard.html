@@ -407,7 +407,6 @@
         <section class="cards clinic-summary-grid">
             <div class="card"><div class="label">普通拉人次数</div><div class="value" id="brokerOrdinaryCount">-</div><div class="hint" id="brokerOrdinaryHint">钱包上线后目标医院日志</div></div>
             <div class="card"><div class="label">成功拉走病人</div><div class="value" id="brokerPatientCount">-</div><div class="hint">普通拉人，不含名片反拉</div></div>
-            <div class="card"><div class="label">钱包生成次数</div><div class="value" id="brokerWalletCount">-</div><div class="hint">仅归因普通成功拉人</div></div>
             <div class="card"><div class="label">钱包打开率</div><div class="value" id="brokerWalletOpenRate">-</div><div class="hint" id="brokerWalletOpenHint">-</div></div>
             <div class="card"><div class="label">生成金币总量</div><div class="value" id="brokerMoneyTotal">-</div><div class="hint" id="brokerMoneyHint">-</div></div>
             <div class="card"><div class="label">平均每钱包金币</div><div class="value" id="brokerAvgMoney">-</div><div class="hint">按生成钱包口径</div></div>
@@ -416,7 +415,7 @@
         </section>
 
         <section class="grid">
-            <div class="panel"><h2>钱包上线后医托链路趋势</h2><div class="chart-box"><canvas id="brokerDailyChart"></canvas></div><div class="note" id="brokerTrendNote">普通拉人和钱包生成使用左轴，反拉成功使用右轴；钱包只归因普通成功拉人。</div></div>
+            <div class="panel"><h2>钱包上线后医托链路趋势</h2><div class="chart-box"><canvas id="brokerDailyChart"></canvas></div><div class="note" id="brokerTrendNote">普通拉人使用左轴，反拉成功使用右轴；钱包只归因普通成功拉人。</div></div>
             <div class="panel"><h2>钱包金币趋势</h2><div class="chart-box"><canvas id="brokerMoneyChart"></canvas></div><div class="note">金币为钱包生成金额，打开率另列。</div></div>
             <div class="panel wide">
                 <h2>上线后统计明细</h2>
@@ -646,7 +645,6 @@
         setText('brokerOrdinaryCount', formatNumber(s.ordinary_success_count));
         setText('brokerOrdinaryHint', `钱包上线 ${s.cutoff_label || '-'} 后`);
         setText('brokerPatientCount', formatNumber(s.ordinary_patient_count));
-        setText('brokerWalletCount', formatNumber(s.wallet_count));
         setText('brokerWalletOpenRate', formatPercent(s.wallet_open_rate));
         setText('brokerWalletOpenHint', `已打开 ${formatNumber(s.wallet_opened)} / 生成 ${formatNumber(s.wallet_count)}`);
         setText('brokerMoneyTotal', formatNumber(s.wallet_money));
@@ -656,7 +654,7 @@
         setText('brokerItemDropHint', `掉落钱包 ${formatNumber(s.item_drop_wallets)}，道具数量 ${formatNumber(s.item_drop_quantity)}`);
         setText('brokerRetaliationSuccess', formatNumber(s.retaliation_success_count));
         setText('brokerRetaliationHint', `点击 ${formatNumber(s.retaliation_click_count)}，反拉病人 ${formatNumber(s.retaliation_patient_count)}`);
-        const brokerAxisNote = '普通拉人和钱包生成使用左轴，反拉成功使用右轴。';
+        const brokerAxisNote = '普通拉人使用左轴，反拉成功使用右轴。';
         setText('brokerTrendNote', data.note ? `${brokerAxisNote} ${data.note}` : `${brokerAxisNote} 钱包只归因普通成功拉人。`);
         renderBrokerDailyChart(data.dailyTrend || []);
         renderBrokerMoneyChart(data.dailyTrend || []);
@@ -682,7 +680,6 @@
             labels: rows.map(row => row.day),
             datasets: [
                 {label: '普通拉人', data: rows.map(row => row.ordinary_success_count), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.14)', tension: 0.32},
-                {label: '钱包生成', data: rows.map(row => row.wallet_count), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32},
                 {label: '反拉成功', data: rows.map(row => row.retaliation_success_count), borderColor: '#ff6b86', backgroundColor: 'rgba(255, 107, 134, 0.14)', tension: 0.32, yAxisID: 'retaliation'}
             ]
         }, {
