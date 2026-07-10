@@ -57,6 +57,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("名片反拉", html)
         self.assertIn("上线后统计明细", html)
         self.assertIn("钱包上线后医托链路趋势", html)
+        self.assertIn("反拉成功使用右轴", html)
+        self.assertIn("yAxisID: 'retaliation'", html)
         self.assertIn("好友和非好友，按拉走人数分段", html)
         self.assertIn("当前钱包规则", html)
         self.assertIn("钱包玩法上线后才有金币和道具掉落机会", html)

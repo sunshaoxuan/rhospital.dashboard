@@ -416,7 +416,7 @@
         </section>
 
         <section class="grid">
-            <div class="panel"><h2>钱包上线后医托链路趋势</h2><div class="chart-box"><canvas id="brokerDailyChart"></canvas></div><div class="note" id="brokerTrendNote">普通拉人和反拉分开统计，钱包只归因普通成功拉人。</div></div>
+            <div class="panel"><h2>钱包上线后医托链路趋势</h2><div class="chart-box"><canvas id="brokerDailyChart"></canvas></div><div class="note" id="brokerTrendNote">普通拉人和钱包生成使用左轴，反拉成功使用右轴；钱包只归因普通成功拉人。</div></div>
             <div class="panel"><h2>钱包金币趋势</h2><div class="chart-box"><canvas id="brokerMoneyChart"></canvas></div><div class="note">金币为钱包生成金额，打开率另列。</div></div>
             <div class="panel wide">
                 <h2>上线后统计明细</h2>
@@ -682,8 +682,14 @@
             datasets: [
                 {label: '普通拉人', data: rows.map(row => row.ordinary_success_count), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.14)', tension: 0.32},
                 {label: '钱包生成', data: rows.map(row => row.wallet_count), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32},
-                {label: '反拉成功', data: rows.map(row => row.retaliation_success_count), borderColor: '#ff6b86', backgroundColor: 'rgba(255, 107, 134, 0.14)', tension: 0.32}
+                {label: '反拉成功', data: rows.map(row => row.retaliation_success_count), borderColor: '#ff6b86', backgroundColor: 'rgba(255, 107, 134, 0.14)', tension: 0.32, yAxisID: 'retaliation'}
             ]
+        }, {
+            scales: {
+                x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
+                y: {position: 'left', ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
+                retaliation: {position: 'right', ticks: {color: '#ff8da2'}, grid: {drawOnChartArea: false}, beginAtZero: true}
+            }
         });
     }
 
