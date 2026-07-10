@@ -656,7 +656,8 @@
         setText('brokerItemDropHint', `掉落钱包 ${formatNumber(s.item_drop_wallets)}，道具数量 ${formatNumber(s.item_drop_quantity)}`);
         setText('brokerRetaliationSuccess', formatNumber(s.retaliation_success_count));
         setText('brokerRetaliationHint', `点击 ${formatNumber(s.retaliation_click_count)}，反拉病人 ${formatNumber(s.retaliation_patient_count)}`);
-        setText('brokerTrendNote', data.note || '普通拉人和反拉分开统计，钱包只归因普通成功拉人。');
+        const brokerAxisNote = '普通拉人和钱包生成使用左轴，反拉成功使用右轴。';
+        setText('brokerTrendNote', data.note ? `${brokerAxisNote} ${data.note}` : `${brokerAxisNote} 钱包只归因普通成功拉人。`);
         renderBrokerDailyChart(data.dailyTrend || []);
         renderBrokerMoneyChart(data.dailyTrend || []);
         renderSimpleRows('brokerStageRows', data.stageComparison || [], ['stage_label', 'ordinary_success_count', 'ordinary_patient_count', 'wallet_count', 'wallet_opened', 'wallet_open_rate', 'wallet_money', 'avg_money_per_wallet', 'item_drop_wallets', 'item_drop_rate', 'retaliation_click_count', 'retaliation_success_count', 'retaliation_patient_count'], {
