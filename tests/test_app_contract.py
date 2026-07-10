@@ -47,6 +47,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("每日诊断统计", html)
         self.assertIn("付费确诊使用右轴", html)
         self.assertIn("yAxisID: 'paid'", html)
+        self.assertIn("累计确诊", html)
 
     def test_dashboard_has_broker_stats_page(self):
         client = app.test_client()
@@ -185,6 +186,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("load_special_clinic_compensation_rewards", source)
         self.assertIn("load_special_clinic_daily_summary", source)
         self.assertIn('"dailySummary": load_special_clinic_daily_summary(conn, week_start)', source)
+        self.assertIn("special_clinic_time_filter(\"create_time\", week_start)", source)
+        self.assertIn("cumulative_diagnosis_count", source)
         self.assertIn("prescription_page_budget_total", source)
         self.assertIn("prescription_page_awarded_total", source)
         self.assertIn("canonical_cabinet", source)

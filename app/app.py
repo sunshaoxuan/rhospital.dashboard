@@ -1127,13 +1127,13 @@ def load_special_clinic_hourly_summary(conn, week_start=None):
 
 def load_special_clinic_daily_summary(conn, week_start=None):
     if not week_start:
-        record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
-        ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+        record_where, record_params = special_clinic_time_filter("create_time", week_start)
+        ticket_where, ticket_params = special_clinic_time_filter("create_time", week_start)
         return query_list(
             conn,
             f"""
             with record_daily as (
-                select clinic_date::date as day,
+                select (create_time at time zone 'UTC' at time zone %s)::date as day,
                        count(*) as diagnosis_count,
                        count(distinct hospital_id) as active_hospital_count,
                        count(*) filter (where ticket_type_used = 'PAID') as paid_diagnosis_count,
@@ -1141,9 +1141,9 @@ def load_special_clinic_daily_summary(conn, week_start=None):
                        coalesce(sum(temporary_patients), 0) as temporary_patients
                 from t_special_clinic_patient_record
                 where {record_where}
-                group by clinic_date::date
+                group by day
             ), ticket_daily as (
-                select clinic_date::date as day,
+                select (create_time at time zone 'UTC' at time zone %s)::date as day,
                        coalesce(sum(abs(appointment_delta)) filter (where appointment_delta < 0), 0) as appointment_ticket_consume,
                        coalesce(sum(abs(gifted_delta)) filter (where gifted_delta < 0), 0) as gifted_ticket_consume,
                        coalesce(sum(abs(paid_delta)) filter (where paid_delta < 0), 0) as paid_ticket_consume,
@@ -1151,7 +1151,7 @@ def load_special_clinic_daily_summary(conn, week_start=None):
                        coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
                 from t_special_clinic_ticket_log
                 where {ticket_where}
-                group by clinic_date::date
+                group by day
             ), daily as (
                 select coalesce(r.day, t.day) as day,
                        coalesce(r.diagnosis_count, 0) as diagnosis_count,
@@ -1183,18 +1183,18 @@ def load_special_clinic_daily_summary(conn, week_start=None):
             from daily
             order by day
             """,
-            (*record_params, *ticket_params),
+            (SPECIAL_CLINIC_ZONE_ID, *record_params, SPECIAL_CLINIC_ZONE_ID, *ticket_params),
         )
 
-    record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
-    ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+    record_where, record_params = special_clinic_time_filter("create_time", week_start)
+    ticket_where, ticket_params = special_clinic_time_filter("create_time", week_start)
     return query_list(
         conn,
         f"""
         with days as (
             select generate_series(%s::date, %s::date + interval '6 day', interval '1 day')::date as day
         ), record_daily as (
-            select clinic_date::date as day,
+            select (create_time at time zone 'UTC' at time zone %s)::date as day,
                    count(*) as diagnosis_count,
                    count(distinct hospital_id) as active_hospital_count,
                    count(*) filter (where ticket_type_used = 'PAID') as paid_diagnosis_count,
@@ -1202,9 +1202,9 @@ def load_special_clinic_daily_summary(conn, week_start=None):
                    coalesce(sum(temporary_patients), 0) as temporary_patients
             from t_special_clinic_patient_record
             where {record_where}
-            group by clinic_date::date
+            group by day
         ), ticket_daily as (
-            select clinic_date::date as day,
+            select (create_time at time zone 'UTC' at time zone %s)::date as day,
                    coalesce(sum(abs(appointment_delta)) filter (where appointment_delta < 0), 0) as appointment_ticket_consume,
                    coalesce(sum(abs(gifted_delta)) filter (where gifted_delta < 0), 0) as gifted_ticket_consume,
                    coalesce(sum(abs(paid_delta)) filter (where paid_delta < 0), 0) as paid_ticket_consume,
@@ -1212,7 +1212,7 @@ def load_special_clinic_daily_summary(conn, week_start=None):
                    coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
             from t_special_clinic_ticket_log
             where {ticket_where}
-            group by clinic_date::date
+            group by day
         ), daily as (
             select d.day,
                    coalesce(r.diagnosis_count, 0) as diagnosis_count,
@@ -1245,7 +1245,7 @@ def load_special_clinic_daily_summary(conn, week_start=None):
         from daily
         order by day
         """,
-        (week_start, week_start, *record_params, *ticket_params),
+        (week_start, week_start, SPECIAL_CLINIC_ZONE_ID, *record_params, SPECIAL_CLINIC_ZONE_ID, *ticket_params),
     )
 
 
