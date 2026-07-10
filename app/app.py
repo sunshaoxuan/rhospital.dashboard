@@ -891,6 +891,7 @@ def load_special_clinic_stats_from_prod():
         if weekly_pages:
             latest_page = dict(weekly_pages[0])
             summary = latest_page["summary"]
+            daily_summary = latest_page["dailySummary"]
             hourly_summary = latest_page["hourlySummary"]
             tier_distribution = latest_page["tierDistribution"]
             patient_distribution = latest_page["patientDistribution"]
@@ -902,6 +903,7 @@ def load_special_clinic_stats_from_prod():
             audit_checks = latest_page["auditChecks"]
         else:
             summary = load_special_clinic_summary(conn)
+            daily_summary = load_special_clinic_daily_summary(conn)
             hourly_summary = load_special_clinic_hourly_summary(conn)
             tier_distribution = load_special_clinic_tier_distribution(conn)
             patient_distribution = load_special_clinic_patient_distribution(conn)
@@ -917,6 +919,7 @@ def load_special_clinic_stats_from_prod():
             "weekOptions": [page["week"] for page in weekly_pages],
             "weeklyPages": weekly_pages,
             "summary": summary,
+            "dailySummary": daily_summary,
             "hourlySummary": hourly_summary,
             "tierDistribution": tier_distribution,
             "patientDistribution": patient_distribution,
@@ -942,6 +945,7 @@ def load_special_clinic_weekly_pages(conn, weekly_cabinet):
         pages.append({
             "week": special_clinic_week_meta(cabinet_row, index),
             "summary": summary,
+            "dailySummary": load_special_clinic_daily_summary(conn, week_start),
             "hourlySummary": load_special_clinic_hourly_summary(conn, week_start),
             "tierDistribution": load_special_clinic_tier_distribution(conn, week_start),
             "patientDistribution": load_special_clinic_patient_distribution(conn, week_start),
@@ -1118,6 +1122,130 @@ def load_special_clinic_hourly_summary(conn, week_start=None):
             SPECIAL_CLINIC_ZONE_ID,
             *compensation_params,
         ),
+    )
+
+
+def load_special_clinic_daily_summary(conn, week_start=None):
+    if not week_start:
+        record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
+        ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+        return query_list(
+            conn,
+            f"""
+            with record_daily as (
+                select clinic_date::date as day,
+                       count(*) as diagnosis_count,
+                       count(distinct hospital_id) as active_hospital_count,
+                       count(*) filter (where ticket_type_used = 'PAID') as paid_diagnosis_count,
+                       coalesce(sum((reward_items ->> '1792')::int), 0) as reward_ticket_count,
+                       coalesce(sum(temporary_patients), 0) as temporary_patients
+                from t_special_clinic_patient_record
+                where {record_where}
+                group by clinic_date::date
+            ), ticket_daily as (
+                select clinic_date::date as day,
+                       coalesce(sum(abs(appointment_delta)) filter (where appointment_delta < 0), 0) as appointment_ticket_consume,
+                       coalesce(sum(abs(gifted_delta)) filter (where gifted_delta < 0), 0) as gifted_ticket_consume,
+                       coalesce(sum(abs(paid_delta)) filter (where paid_delta < 0), 0) as paid_ticket_consume,
+                       coalesce(sum(paid_delta) filter (where paid_delta > 0 and change_type = 'PURCHASE'), 0) as paid_ticket_purchased,
+                       coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
+                from t_special_clinic_ticket_log
+                where {ticket_where}
+                group by clinic_date::date
+            ), daily as (
+                select coalesce(r.day, t.day) as day,
+                       coalesce(r.diagnosis_count, 0) as diagnosis_count,
+                       coalesce(r.active_hospital_count, 0) as active_hospital_count,
+                       coalesce(r.paid_diagnosis_count, 0) as paid_diagnosis_count,
+                       coalesce(t.appointment_ticket_consume, 0) as appointment_ticket_consume,
+                       coalesce(t.gifted_ticket_consume, 0) as gifted_ticket_consume,
+                       coalesce(t.paid_ticket_consume, 0) as paid_ticket_consume,
+                       coalesce(t.paid_ticket_purchased, 0) as paid_ticket_purchased,
+                       coalesce(t.ingot_cost, 0) as ingot_cost,
+                       coalesce(r.reward_ticket_count, 0) as reward_ticket_count,
+                       coalesce(r.temporary_patients, 0) as temporary_patients
+                from record_daily r
+                full outer join ticket_daily t on t.day = r.day
+            )
+            select day::text as clinic_date,
+                   to_char(day, 'MM-DD') as label,
+                   diagnosis_count,
+                   (sum(diagnosis_count) over (order by day rows between unbounded preceding and current row))::bigint as cumulative_diagnosis_count,
+                   active_hospital_count,
+                   paid_diagnosis_count,
+                   appointment_ticket_consume,
+                   gifted_ticket_consume,
+                   paid_ticket_consume,
+                   paid_ticket_purchased,
+                   ingot_cost,
+                   reward_ticket_count,
+                   temporary_patients
+            from daily
+            order by day
+            """,
+            (*record_params, *ticket_params),
+        )
+
+    record_where, record_params = special_clinic_cycle_filter("clinic_date", week_start)
+    ticket_where, ticket_params = special_clinic_cycle_filter("clinic_date", week_start)
+    return query_list(
+        conn,
+        f"""
+        with days as (
+            select generate_series(%s::date, %s::date + interval '6 day', interval '1 day')::date as day
+        ), record_daily as (
+            select clinic_date::date as day,
+                   count(*) as diagnosis_count,
+                   count(distinct hospital_id) as active_hospital_count,
+                   count(*) filter (where ticket_type_used = 'PAID') as paid_diagnosis_count,
+                   coalesce(sum((reward_items ->> '1792')::int), 0) as reward_ticket_count,
+                   coalesce(sum(temporary_patients), 0) as temporary_patients
+            from t_special_clinic_patient_record
+            where {record_where}
+            group by clinic_date::date
+        ), ticket_daily as (
+            select clinic_date::date as day,
+                   coalesce(sum(abs(appointment_delta)) filter (where appointment_delta < 0), 0) as appointment_ticket_consume,
+                   coalesce(sum(abs(gifted_delta)) filter (where gifted_delta < 0), 0) as gifted_ticket_consume,
+                   coalesce(sum(abs(paid_delta)) filter (where paid_delta < 0), 0) as paid_ticket_consume,
+                   coalesce(sum(paid_delta) filter (where paid_delta > 0 and change_type = 'PURCHASE'), 0) as paid_ticket_purchased,
+                   coalesce(sum(ingot_cost) filter (where change_type = 'PURCHASE'), 0) as ingot_cost
+            from t_special_clinic_ticket_log
+            where {ticket_where}
+            group by clinic_date::date
+        ), daily as (
+            select d.day,
+                   coalesce(r.diagnosis_count, 0) as diagnosis_count,
+                   coalesce(r.active_hospital_count, 0) as active_hospital_count,
+                   coalesce(r.paid_diagnosis_count, 0) as paid_diagnosis_count,
+                   coalesce(t.appointment_ticket_consume, 0) as appointment_ticket_consume,
+                   coalesce(t.gifted_ticket_consume, 0) as gifted_ticket_consume,
+                   coalesce(t.paid_ticket_consume, 0) as paid_ticket_consume,
+                   coalesce(t.paid_ticket_purchased, 0) as paid_ticket_purchased,
+                   coalesce(t.ingot_cost, 0) as ingot_cost,
+                   coalesce(r.reward_ticket_count, 0) as reward_ticket_count,
+                   coalesce(r.temporary_patients, 0) as temporary_patients
+            from days d
+            left join record_daily r on r.day = d.day
+            left join ticket_daily t on t.day = d.day
+        )
+        select day::text as clinic_date,
+               to_char(day, 'MM-DD') as label,
+               diagnosis_count,
+               (sum(diagnosis_count) over (order by day rows between unbounded preceding and current row))::bigint as cumulative_diagnosis_count,
+               active_hospital_count,
+               paid_diagnosis_count,
+               appointment_ticket_consume,
+               gifted_ticket_consume,
+               paid_ticket_consume,
+               paid_ticket_purchased,
+               ingot_cost,
+               reward_ticket_count,
+               temporary_patients
+        from daily
+        order by day
+        """,
+        (week_start, week_start, *record_params, *ticket_params),
     )
 
 
@@ -1937,6 +2065,7 @@ def load_unavailable_special_clinic_stats(error: Exception):
         "weekOptions": [],
         "weeklyPages": [],
         "summary": {},
+        "dailySummary": [],
         "hourlySummary": [],
         "tierDistribution": [],
         "patientDistribution": [],
