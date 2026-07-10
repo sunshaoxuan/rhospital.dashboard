@@ -368,7 +368,7 @@
             <div class="panel"><h2>道具奖品发放 Top 12</h2><div class="chart-box"><canvas id="clinicRewardItemChart"></canvas></div><div class="note">道具奖品来自确诊记录 reward_items 和后台补偿物品，票流水另列。</div></div>
             <div class="panel"><h2>主账资源发放，按小时</h2><div class="chart-box"><canvas id="clinicResourceChart"></canvas></div><div class="note">资源来自确诊记录主账，金钱使用右轴。</div></div>
             <div class="panel"><h2>对账异常</h2><div class="table-scroll clinic-table"><table><thead><tr><th>项目</th><th>主口径</th><th>校验口径</th><th>差异</th></tr></thead><tbody id="clinicAuditRows"></tbody></table></div><div class="table-scroll clinic-table"><table><thead><tr><th>风险提示类型</th><th>次数</th></tr></thead><tbody id="clinicAlertRows"></tbody></table></div></div>
-            <div class="panel"><h2>周期每日诊断</h2><div class="chart-box"><canvas id="clinicDailyChart"></canvas></div><div class="note">按选中周三周期逐日统计，日确诊使用左轴，累计确诊使用右轴。</div></div>
+            <div class="panel"><h2>周期每日诊断</h2><div class="chart-box"><canvas id="clinicDailyChart"></canvas></div><div class="note">按选中周三周期逐日统计，日确诊使用左轴，付费确诊使用右轴；累计确诊见每日表。</div></div>
             <div class="panel wide">
                 <h2>每小时总览</h2>
                 <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>小时</th><th>确诊</th><th>医院</th><th>付费确诊</th><th>普通票消耗</th><th>赠票消耗</th><th>付费票消耗</th><th>购票张数</th><th>元宝成本</th><th>返票</th><th>补偿奖品</th><th>临时患者</th><th>元宝奖</th><th>金钱奖</th><th>声望奖</th><th>荣耀奖</th></tr></thead><tbody id="clinicHourlyRows"></tbody></table></div>
@@ -855,14 +855,13 @@
             labels: daily.map(row => row.label),
             datasets: [
                 {label: '日确诊', data: daily.map(row => row.diagnosis_count), backgroundColor: 'rgba(84, 167, 255, 0.58)', yAxisID: 'daily'},
-                {label: '付费确诊', type: 'line', data: daily.map(row => row.paid_diagnosis_count), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32, yAxisID: 'daily'},
-                {label: '累计确诊', type: 'line', data: daily.map(row => row.cumulative_diagnosis_count), borderColor: '#ffd166', backgroundColor: 'rgba(255, 209, 102, 0.14)', tension: 0.32, yAxisID: 'cumulative'}
+                {label: '付费确诊', type: 'line', data: daily.map(row => row.paid_diagnosis_count), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.14)', tension: 0.32, yAxisID: 'paid'}
             ]
         }, {
             scales: {
                 x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
                 daily: {position: 'left', ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
-                cumulative: {position: 'right', ticks: {color: '#ffd166'}, grid: {drawOnChartArea: false}, beginAtZero: true}
+                paid: {position: 'right', ticks: {color: '#48d597'}, grid: {drawOnChartArea: false}, beginAtZero: true}
             }
         });
         const hourly = data.hourlySummary || [];

@@ -45,6 +45,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('id="clinicDailyRows"', html)
         self.assertIn("周期每日诊断", html)
         self.assertIn("每日诊断统计", html)
+        self.assertIn("付费确诊使用右轴", html)
+        self.assertIn("yAxisID: 'paid'", html)
 
     def test_dashboard_has_broker_stats_page(self):
         client = app.test_client()
