@@ -377,6 +377,7 @@ def load_stats_from_prod():
             "dailyRecharge": load_daily_recharge(conn),
             "hourlyYuanbaoSpending": load_hourly_yuanbao_spending(conn),
             "weeklyYuanbaoSpending": load_weekly_yuanbao_spending(conn),
+            "weeklyYuanbaoPurchases": load_weekly_yuanbao_purchases(conn),
             "itemPurchases": load_item_purchases(conn),
             "itemUsages": load_item_usages(conn),
         }
@@ -462,6 +463,52 @@ def load_weekly_yuanbao_spending(conn):
                coalesce(spending.yuanbao_spent, 0) as yuanbao_spent
         from weeks
         left join spending on spending.week_start = weeks.week_start
+        order by weeks.week_start
+        """,
+        (ZONE_ID, ZONE_ID, ZONE_ID),
+    )
+
+
+def load_weekly_yuanbao_purchases(conn):
+    return query_list(
+        conn,
+        """
+        with bounds as (
+            select date_trunc('week', now() at time zone %s)::date as current_week_start
+        ), weeks as (
+            select generate_series(
+                       current_week_start - interval '9 weeks',
+                       current_week_start,
+                       interval '1 week'
+                   )::date as week_start
+            from bounds
+        ), orders as (
+            select update_time, yuanbao_amount
+            from t_payment_orders
+            where status = 'COMPLETED'
+            union all
+            select update_time, yuanbao_amount
+            from t_paddle_payment_orders
+            where status = 'COMPLETED'
+            union all
+            select update_time, yuanbao_amount
+            from t_steam_payment_orders
+            where status = 'COMPLETED' and delivered is true
+        ), purchases as (
+            select date_trunc('week', update_time at time zone 'UTC' at time zone %s)::date as week_start,
+                   count(*) as order_count,
+                   coalesce(sum(coalesce(yuanbao_amount, 0)), 0) as yuanbao_purchased
+            from orders, bounds
+            where (update_time at time zone 'UTC' at time zone %s)::date >= current_week_start - interval '9 weeks'
+            group by week_start
+        )
+        select weeks.week_start::text as week_start,
+               (weeks.week_start + 6)::text as week_end,
+               to_char(weeks.week_start, 'MM-DD') || ' 至 ' || to_char(weeks.week_start + 6, 'MM-DD') as label,
+               coalesce(purchases.order_count, 0) as order_count,
+               coalesce(purchases.yuanbao_purchased, 0) as yuanbao_purchased
+        from weeks
+        left join purchases on purchases.week_start = weeks.week_start
         order by weeks.week_start
         """,
         (ZONE_ID, ZONE_ID, ZONE_ID),
@@ -1787,6 +1834,7 @@ def load_unavailable_stats(error: Exception):
         "dailyRegistrations": [],
         "hourlyYuanbaoSpending": [],
         "weeklyYuanbaoSpending": [],
+        "weeklyYuanbaoPurchases": [],
         "itemPurchases": [],
         "itemUsages": [],
     }

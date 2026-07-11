@@ -301,6 +301,7 @@
             <div class="panel"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近14日日活来自进入游戏日志，快照仅用于生产库暂不可用时的补充。</div></div>
             <div class="panel"><h2>元宝消耗统计，按小时</h2><div class="chart-box"><canvas id="yuanbaoSpendChart"></canvas></div><div class="note" id="yuanbaoSpendNote"></div></div>
             <div class="panel"><h2>最近10周元宝消耗总量</h2><div class="chart-box"><canvas id="weeklyYuanbaoSpendChart"></canvas></div><div class="note" id="weeklyYuanbaoSpendNote"></div></div>
+            <div class="panel"><h2>最近10周元宝购入量</h2><div class="chart-box"><canvas id="weeklyYuanbaoPurchaseChart"></canvas></div><div class="note" id="weeklyYuanbaoPurchaseNote"></div></div>
             <div class="panel">
                 <h2>近14日道具购买 Top 12</h2>
                 <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
@@ -602,6 +603,7 @@
             onlineBuckets: data.onlineBuckets || [], dailyRecharge: data.dailyRecharge || [],
             dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [], hourlyYuanbaoSpending: data.hourlyYuanbaoSpending || [],
             weeklyYuanbaoSpending: data.weeklyYuanbaoSpending || [],
+            weeklyYuanbaoPurchases: data.weeklyYuanbaoPurchases || [],
             itemPurchases: data.itemPurchases || [], itemUsages: data.itemUsages || []
         });
         if (renderState.overallSignature === overallSignature) return;
@@ -619,12 +621,14 @@
         setText('onlineNote', data.note || '');
         setText('yuanbaoSpendNote', '近14日按小时统计，仅统计元宝减少日志。');
         setText('weeklyYuanbaoSpendNote', '按周一至周日滚动最近10周统计，仅统计元宝减少日志。');
+        setText('weeklyYuanbaoPurchaseNote', '按周一至周日滚动最近10周统计，购入量来自已完成支付订单的元宝数量。');
 
         renderOnlineChart(data.onlineBuckets || []);
         renderRechargeChart(data.dailyRecharge || []);
         renderActivityChart(data.dailyActive || [], data.dailyRegistrations || []);
         renderYuanbaoSpendChart(data.hourlyYuanbaoSpending || []);
         renderWeeklyYuanbaoSpendChart(data.weeklyYuanbaoSpending || []);
+        renderWeeklyYuanbaoPurchaseChart(data.weeklyYuanbaoPurchases || []);
         renderItemPurchaseChart(data.itemPurchases || []);
         renderItemUseChart(data.itemUsages || []);
         renderItemActivityRows('itemPurchaseRows', data.itemPurchases || [], true);
@@ -765,6 +769,22 @@
                 x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
                 y: {position: 'left', ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
                 events: {position: 'right', ticks: {color: '#48d597'}, grid: {drawOnChartArea: false}, beginAtZero: true}
+            }
+        });
+    }
+
+    function renderWeeklyYuanbaoPurchaseChart(rows) {
+        upsertChart('weeklyYuanbaoPurchaseChart', 'bar', 'weeklyYuanbaoPurchaseChart', {
+            labels: rows.map(row => row.label),
+            datasets: [
+                {label: '购入元宝', data: rows.map(row => Number(row.yuanbao_purchased || 0)), backgroundColor: 'rgba(255, 209, 102, 0.68)'},
+                {label: '订单数', type: 'line', data: rows.map(row => Number(row.order_count || 0)), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.12)', tension: 0.32, yAxisID: 'orders'}
+            ]
+        }, {
+            scales: {
+                x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
+                y: {position: 'left', ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
+                orders: {position: 'right', ticks: {color: '#b898ff'}, grid: {drawOnChartArea: false}, beginAtZero: true}
             }
         });
     }

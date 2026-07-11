@@ -58,6 +58,9 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("最近10周元宝消耗总量", html)
         self.assertIn('id="weeklyYuanbaoSpendChart"', html)
         self.assertIn("renderWeeklyYuanbaoSpendChart", html)
+        self.assertIn("最近10周元宝购入量", html)
+        self.assertIn('id="weeklyYuanbaoPurchaseChart"', html)
+        self.assertIn("renderWeeklyYuanbaoPurchaseChart", html)
 
     def test_dashboard_has_broker_stats_page(self):
         client = app.test_client()
@@ -107,9 +110,12 @@ class AppContractTest(unittest.TestCase):
 
         self.assertIn("weeklyYuanbaoSpending", source)
         self.assertIn("load_weekly_yuanbao_spending", source)
+        self.assertIn("weeklyYuanbaoPurchases", source)
+        self.assertIn("load_weekly_yuanbao_purchases", source)
         self.assertIn("generate_series", source)
         self.assertIn("current_week_start - interval '9 weeks'", source)
         self.assertIn("old_value > new_value", source)
+        self.assertIn("coalesce(sum(coalesce(yuanbao_amount, 0)), 0) as yuanbao_purchased", source)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()
