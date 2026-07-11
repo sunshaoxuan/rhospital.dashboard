@@ -18,11 +18,18 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
 
+    def test_favicon_returns_empty_no_content(self):
+        client = app.test_client()
+        response = client.get("/favicon.ico")
+
+        self.assertEqual(response.status_code, 204)
+
     def test_expected_routes_exist(self):
         rules = {str(rule) for rule in app.url_map.iter_rules()}
 
         self.assertIn("/", rules)
         self.assertIn("/healthz", rules)
+        self.assertIn("/favicon.ico", rules)
         self.assertIn("/api/stats", rules)
         self.assertIn("/api/special-clinic-stats", rules)
         self.assertIn("/api/broker-stats", rules)
@@ -48,6 +55,9 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("付费确诊使用右轴", html)
         self.assertIn("yAxisID: 'paid'", html)
         self.assertIn("累计确诊", html)
+        self.assertIn("最近10周元宝消耗总量", html)
+        self.assertIn('id="weeklyYuanbaoSpendChart"', html)
+        self.assertIn("renderWeeklyYuanbaoSpendChart", html)
 
     def test_dashboard_has_broker_stats_page(self):
         client = app.test_client()
@@ -91,6 +101,15 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("patient_band", source)
         self.assertNotIn("BROKER_RULE_BASELINE", source)
         self.assertNotIn("pre_ordinary_success_count", source)
+
+    def test_overall_stats_include_weekly_yuanbao_spending(self):
+        source = Path("app/app.py").read_text(encoding="utf-8")
+
+        self.assertIn("weeklyYuanbaoSpending", source)
+        self.assertIn("load_weekly_yuanbao_spending", source)
+        self.assertIn("generate_series", source)
+        self.assertIn("current_week_start - interval '9 weeks'", source)
+        self.assertIn("old_value > new_value", source)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()

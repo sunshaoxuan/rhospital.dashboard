@@ -376,6 +376,7 @@ def load_stats_from_prod():
             ),
             "dailyRecharge": load_daily_recharge(conn),
             "hourlyYuanbaoSpending": load_hourly_yuanbao_spending(conn),
+            "weeklyYuanbaoSpending": load_weekly_yuanbao_spending(conn),
             "itemPurchases": load_item_purchases(conn),
             "itemUsages": load_item_usages(conn),
         }
@@ -425,6 +426,43 @@ def load_hourly_yuanbao_spending(conn):
           and (create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
         group by label
         order by min(create_time)
+        """,
+        (ZONE_ID, ZONE_ID, ZONE_ID),
+    )
+
+
+def load_weekly_yuanbao_spending(conn):
+    return query_list(
+        conn,
+        """
+        with bounds as (
+            select date_trunc('week', now() at time zone %s)::date as current_week_start
+        ), weeks as (
+            select generate_series(
+                       current_week_start - interval '9 weeks',
+                       current_week_start,
+                       interval '1 week'
+                   )::date as week_start
+            from bounds
+        ), spending as (
+            select date_trunc('week', create_time at time zone 'UTC' at time zone %s)::date as week_start,
+                   count(*) as event_count,
+                   coalesce(sum(greatest(coalesce(old_value, 0) - coalesce(new_value, 0), 0)), 0) as yuanbao_spent
+            from t_log_yuanbao, bounds
+            where old_value is not null
+              and new_value is not null
+              and old_value > new_value
+              and (create_time at time zone 'UTC' at time zone %s)::date >= current_week_start - interval '9 weeks'
+            group by week_start
+        )
+        select weeks.week_start::text as week_start,
+               (weeks.week_start + 6)::text as week_end,
+               to_char(weeks.week_start, 'MM-DD') || ' 至 ' || to_char(weeks.week_start + 6, 'MM-DD') as label,
+               coalesce(spending.event_count, 0) as event_count,
+               coalesce(spending.yuanbao_spent, 0) as yuanbao_spent
+        from weeks
+        left join spending on spending.week_start = weeks.week_start
+        order by weeks.week_start
         """,
         (ZONE_ID, ZONE_ID, ZONE_ID),
     )
@@ -1748,6 +1786,7 @@ def load_unavailable_stats(error: Exception):
         "dailyActive": [],
         "dailyRegistrations": [],
         "hourlyYuanbaoSpending": [],
+        "weeklyYuanbaoSpending": [],
         "itemPurchases": [],
         "itemUsages": [],
     }
@@ -2096,6 +2135,11 @@ def index():
 @app.get("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return "", 204
 
 
 @app.get("/api/stats")
