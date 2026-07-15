@@ -114,6 +114,8 @@ OPS_DASHBOARD_SECRET_KEY=<LONG_RANDOM_SECRET>
 OPS_DASHBOARD_FIREBASE_PROJECT_ID=r-hospital-c8069
 ```
 
+Firebase Authentication 的已获授权网域需要包含 `ccnode.briconbric.com`。`OPS_DASHBOARD_URL_PREFIX=/rhdashboard` 用于登录拦截、登录成功回跳和退出登录链接，不能省略。
+
 首次使用 `/rhdashboard/` 子路径访问时，需要在 ccnode 的 nginx 上追加 location：
 
 ```bash

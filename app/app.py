@@ -2414,7 +2414,7 @@ def firebase_login():
         "picture": userinfo.get("picture", ""),
         "firebase_uid": userinfo.get("sub", ""),
     }
-    return jsonify({"redirect": safe_next_url(payload.get("next", "/"))})
+    return jsonify({"redirect": prefixed_path(safe_next_url(payload.get("next", "/")))})
 
 
 @app.get("/auth/logout")

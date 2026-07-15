@@ -3,6 +3,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["OPS_DASHBOARD_DISABLE_SAMPLER"] = "1"
 os.environ["OPS_DASHBOARD_AUTH_MODE"] = "none"
@@ -319,6 +320,45 @@ class AppContractTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 302)
             self.assertEqual(response.headers["Location"], "/rhdashboard/auth/login?next=/")
+        finally:
+            app_module.AUTH_MODE = old_auth_mode
+            app_module.URL_PREFIX = old_url_prefix
+            app.secret_key = old_secret_key
+            if old_secret_env is None:
+                os.environ.pop("OPS_DASHBOARD_SECRET_KEY", None)
+            else:
+                os.environ["OPS_DASHBOARD_SECRET_KEY"] = old_secret_env
+
+    def test_firebase_login_redirect_respects_subpath_prefix(self):
+        old_auth_mode = app_module.AUTH_MODE
+        old_url_prefix = app_module.URL_PREFIX
+        old_secret_key = app.secret_key
+        old_secret_env = os.environ.get("OPS_DASHBOARD_SECRET_KEY")
+        try:
+            app_module.AUTH_MODE = "firebase"
+            app_module.URL_PREFIX = "/rhdashboard"
+            app.secret_key = "test-secret"
+            os.environ["OPS_DASHBOARD_SECRET_KEY"] = "test-secret"
+            client = app.test_client()
+
+            with patch.object(
+                app_module,
+                "verify_firebase_id_token",
+                return_value={"email": "sunshaoxuan@gmail.com", "sub": "test-uid"},
+            ):
+                root_response = client.post(
+                    "/auth/firebase-login",
+                    json={"idToken": "token", "next": "/"},
+                )
+                prefixed_response = client.post(
+                    "/auth/firebase-login",
+                    json={"idToken": "token", "next": "/rhdashboard/"},
+                )
+
+            self.assertEqual(root_response.status_code, 200)
+            self.assertEqual(root_response.get_json()["redirect"], "/rhdashboard/")
+            self.assertEqual(prefixed_response.status_code, 200)
+            self.assertEqual(prefixed_response.get_json()["redirect"], "/rhdashboard/")
         finally:
             app_module.AUTH_MODE = old_auth_mode
             app_module.URL_PREFIX = old_url_prefix
