@@ -1,4 +1,6 @@
 import html
+import base64
+import json
 import os
 import sqlite3
 import threading
@@ -10,8 +12,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg
-from authlib.integrations.flask_client import OAuth
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+import requests
+from authlib.jose import JsonWebToken
+from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 
@@ -40,13 +43,24 @@ SPECIAL_CLINIC_ITEM_NAMES = {
     1792: "特需门诊票",
 }
 SPECIAL_CLINIC_EVENT_ITEM_IDS = {1351, 1792}
-AUTH_MODE = os.getenv("OPS_DASHBOARD_AUTH_MODE", "google").strip().lower()
+AUTH_MODE = os.getenv("OPS_DASHBOARD_AUTH_MODE", "firebase").strip().lower()
 AUTH_ALLOWED_EMAILS = {
     email.strip().lower()
     for email in os.getenv("OPS_DASHBOARD_ALLOWED_EMAILS", "sunshaoxuan@gmail.com").split(",")
     if email.strip()
 }
-AUTH_PUBLIC_ENDPOINTS = {"healthz", "favicon", "login", "auth_callback"}
+AUTH_PUBLIC_ENDPOINTS = {"healthz", "favicon", "login", "firebase_login"}
+FIREBASE_PROJECT_ID = os.getenv("OPS_DASHBOARD_FIREBASE_PROJECT_ID", "r-hospital-c8069").strip()
+FIREBASE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+FIREBASE_WEB_CONFIG = {
+    "apiKey": os.getenv("OPS_DASHBOARD_FIREBASE_API_KEY", "AIzaSyAvjGq-c6jUho23Gby-sU9Wu_DEg3zqm74"),
+    "authDomain": os.getenv("OPS_DASHBOARD_FIREBASE_AUTH_DOMAIN", "r-hospital-c8069.firebaseapp.com"),
+    "projectId": FIREBASE_PROJECT_ID,
+    "storageBucket": os.getenv("OPS_DASHBOARD_FIREBASE_STORAGE_BUCKET", "r-hospital-c8069.firebasestorage.app"),
+    "messagingSenderId": os.getenv("OPS_DASHBOARD_FIREBASE_MESSAGING_SENDER_ID", "165812175721"),
+    "appId": os.getenv("OPS_DASHBOARD_FIREBASE_APP_ID", "1:165812175721:web:0b6cf47683368ffe5833f8"),
+}
+firebase_cert_cache = {"expires_at": 0.0, "certs": {}}
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -56,31 +70,20 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("OPS_DASHBOARD_COOKIE_SECURE", "true").strip().lower() not in {"0", "false", "no"},
 )
-oauth = OAuth(app)
-
-if AUTH_MODE == "google":
-    oauth.register(
-        name="google",
-        client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
-        client_secret=os.getenv("GOOGLE_CLIENT_SECRET", ""),
-        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-        client_kwargs={"scope": "openid email profile"},
-    )
 
 
 def auth_setup_error():
     if AUTH_MODE in {"none", "off", "disabled"}:
         return None
-    if AUTH_MODE != "google":
+    if AUTH_MODE != "firebase":
         return f"unsupported OPS_DASHBOARD_AUTH_MODE: {AUTH_MODE}"
-    missing = [
-        name for name in ("OPS_DASHBOARD_SECRET_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET")
-        if not os.getenv(name, "").strip()
-    ]
+    missing = [name for name in ("OPS_DASHBOARD_SECRET_KEY",) if not os.getenv(name, "").strip()]
     if missing:
         return f"missing required auth env: {', '.join(missing)}"
     if not AUTH_ALLOWED_EMAILS:
         return "missing required auth env: OPS_DASHBOARD_ALLOWED_EMAILS"
+    if not FIREBASE_PROJECT_ID:
+        return "missing required auth env: OPS_DASHBOARD_FIREBASE_PROJECT_ID"
     return None
 
 
@@ -104,6 +107,108 @@ def safe_next_url(value):
     if not next_url.startswith("/") or next_url.startswith("//"):
         return "/"
     return next_url
+
+
+def base64url_json(segment):
+    padded = segment + "=" * (-len(segment) % 4)
+    return json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+
+
+def load_firebase_certs():
+    now = time.time()
+    if firebase_cert_cache["certs"] and firebase_cert_cache["expires_at"] > now:
+        return firebase_cert_cache["certs"]
+    response = requests.get(FIREBASE_CERTS_URL, timeout=5)
+    response.raise_for_status()
+    max_age = 3600
+    cache_control = response.headers.get("cache-control", "")
+    for part in cache_control.split(","):
+        part = part.strip()
+        if part.startswith("max-age="):
+            try:
+                max_age = int(part.split("=", 1)[1])
+            except ValueError:
+                max_age = 3600
+    firebase_cert_cache["certs"] = response.json()
+    firebase_cert_cache["expires_at"] = now + max_age
+    return firebase_cert_cache["certs"]
+
+
+def verify_firebase_id_token(id_token):
+    if not id_token:
+        raise ValueError("missing Firebase ID token")
+    header = base64url_json(id_token.split(".", 1)[0])
+    kid = header.get("kid")
+    cert = load_firebase_certs().get(kid)
+    if not cert:
+        raise ValueError("unknown Firebase token key")
+    claims_options = {
+        "iss": {"essential": True, "value": f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"},
+        "aud": {"essential": True, "value": FIREBASE_PROJECT_ID},
+        "sub": {"essential": True},
+        "email": {"essential": True},
+    }
+    claims = JsonWebToken(["RS256"]).decode(id_token, cert, claims_options=claims_options)
+    claims.validate(leeway=30)
+    return dict(claims)
+
+
+LOGIN_TEMPLATE = """<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录运营看板</title>
+    <style>
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #07111f; color: #eef5ff; }
+        main { width: min(420px, calc(100vw - 32px)); border: 1px solid rgba(151, 178, 214, 0.24); background: rgba(15, 28, 48, 0.92); border-radius: 8px; padding: 28px; box-shadow: 0 24px 80px rgba(0,0,0,0.32); }
+        h1 { margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }
+        p { margin: 0 0 20px; color: #98aac3; line-height: 1.6; }
+        button { width: 100%; border: 0; border-radius: 6px; padding: 12px 14px; background: #48d597; color: #04120d; font-weight: 760; cursor: pointer; }
+        button:disabled { opacity: 0.55; cursor: wait; }
+        .error { display: none; margin-top: 14px; color: #ff9c8d; font-size: 13px; line-height: 1.5; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>运营看板登录</h1>
+    <p>请使用允许访问的 Google 账号登录。</p>
+    <button id="loginBtn" type="button">使用 Google 登录</button>
+    <div class="error" id="error"></div>
+</main>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+
+    const app = initializeApp({{ firebase_config|safe }});
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+    const loginBtn = document.getElementById("loginBtn");
+    const errorBox = document.getElementById("error");
+
+    loginBtn.addEventListener("click", async () => {
+        loginBtn.disabled = true;
+        errorBox.style.display = "none";
+        try {
+            const result = await signInWithPopup(auth, provider);
+            const idToken = await result.user.getIdToken();
+            const response = await fetch("{{ url_for('firebase_login') }}", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({idToken, next: {{ next_url_json|safe }}})
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.error || "登录失败");
+            window.location.href = payload.redirect || "/";
+        } catch (error) {
+            errorBox.textContent = error.message || String(error);
+            errorBox.style.display = "block";
+            loginBtn.disabled = false;
+        }
+    });
+</script>
+</body>
+</html>"""
 
 
 @app.before_request
@@ -2263,30 +2368,35 @@ def login():
     setup_error = auth_setup_error()
     if setup_error:
         return auth_error_response(setup_error, 503)
-    session["next_url"] = safe_next_url(request.args.get("next", "/"))
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "").strip() or url_for("auth_callback", _external=True)
-    return oauth.google.authorize_redirect(redirect_uri)
+    next_url = safe_next_url(request.args.get("next", "/"))
+    return render_template_string(
+        LOGIN_TEMPLATE,
+        firebase_config=json.dumps(FIREBASE_WEB_CONFIG, separators=(",", ":")),
+        next_url_json=json.dumps(next_url),
+    )
 
 
-@app.get("/auth/callback")
-def auth_callback():
+@app.post("/auth/firebase-login")
+def firebase_login():
     setup_error = auth_setup_error()
     if setup_error:
         return auth_error_response(setup_error, 503)
-    token = oauth.google.authorize_access_token()
-    userinfo = token.get("userinfo")
-    if not userinfo:
-        userinfo = oauth.google.userinfo()
+    payload = request.get_json(silent=True) or {}
+    try:
+        userinfo = verify_firebase_id_token(payload.get("idToken", ""))
+    except Exception:
+        return jsonify({"error": "invalid Firebase login token"}), 401
     email = str(userinfo.get("email", "")).lower()
     if email not in AUTH_ALLOWED_EMAILS:
         session.clear()
-        return auth_error_response(f"{email or 'unknown account'} is not allowed", 403)
+        return jsonify({"error": f"{email or 'unknown account'} is not allowed"}), 403
     session["user"] = {
         "email": email,
         "name": userinfo.get("name", ""),
         "picture": userinfo.get("picture", ""),
+        "firebase_uid": userinfo.get("sub", ""),
     }
-    return redirect(safe_next_url(session.pop("next_url", "/")))
+    return jsonify({"redirect": safe_next_url(payload.get("next", "/"))})
 
 
 @app.get("/auth/logout")

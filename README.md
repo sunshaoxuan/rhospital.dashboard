@@ -49,7 +49,7 @@ docker compose down
 ## 数据边界
 
 - 生产数据库只执行 `SELECT`。
-- 默认启用 Google SSO，只有 `OPS_DASHBOARD_ALLOWED_EMAILS` 中的账号可以访问页面和统计 API；`/healthz` 保持开放给部署健康检查使用。
+- 默认启用 Firebase SSO，复用游戏现有 Firebase 项目登录，只有 `OPS_DASHBOARD_ALLOWED_EMAILS` 中的账号可以访问页面和统计 API；`/healthz` 保持开放给部署健康检查使用。
 - 每次数据库连接都会设置 `default_transaction_read_only=on`。
 - 页面每 60 秒轮询一次，数据未变化时不重绘。
 - 看板页面使用自适应版面，手机宽度下卡片、图表、页签和明细弹窗自动收缩，宽表格支持横向滑动查看。
@@ -107,18 +107,10 @@ PROD_DB_USERNAME=<READ_ONLY_USER>
 PROD_DB_PASSWORD=<READ_ONLY_PASSWORD>
 OPS_DASHBOARD_TIME_ZONE=Asia/Tokyo
 OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS=10
-OPS_DASHBOARD_AUTH_MODE=google
+OPS_DASHBOARD_AUTH_MODE=firebase
 OPS_DASHBOARD_ALLOWED_EMAILS=sunshaoxuan@gmail.com
 OPS_DASHBOARD_SECRET_KEY=<LONG_RANDOM_SECRET>
-GOOGLE_CLIENT_ID=<GOOGLE_OAUTH_CLIENT_ID>
-GOOGLE_CLIENT_SECRET=<GOOGLE_OAUTH_CLIENT_SECRET>
-GOOGLE_REDIRECT_URI=https://ccnode.briconbric.com/rhdashboard/auth/callback
-```
-
-Google OAuth 客户端需要在 Google Cloud Console 中把授权回调 URL 设置为：
-
-```text
-https://ccnode.briconbric.com/rhdashboard/auth/callback
+OPS_DASHBOARD_FIREBASE_PROJECT_ID=r-hospital-c8069
 ```
 
 首次使用 `/rhdashboard/` 子路径访问时，需要在 ccnode 的 nginx 上追加 location：
