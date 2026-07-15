@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 os.environ["OPS_DASHBOARD_DISABLE_SAMPLER"] = "1"
+os.environ["OPS_DASHBOARD_AUTH_MODE"] = "none"
 
 import app.app as app_module
 from app.app import app
@@ -30,6 +31,9 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/", rules)
         self.assertIn("/healthz", rules)
         self.assertIn("/favicon.ico", rules)
+        self.assertIn("/auth/login", rules)
+        self.assertIn("/auth/callback", rules)
+        self.assertIn("/auth/logout", rules)
         self.assertIn("/api/stats", rules)
         self.assertIn("/api/special-clinic-stats", rules)
         self.assertIn("/api/broker-stats", rules)
@@ -275,12 +279,27 @@ class AppContractTest(unittest.TestCase):
         readme = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("https://ccnode.briconbric.com/rhdashboard/", readme)
         self.assertIn("PROD_DB_URL=postgresql://178.239.117.99:35432/hospital", readme)
+        self.assertIn("OPS_DASHBOARD_ALLOWED_EMAILS=sunshaoxuan@gmail.com", readme)
+        self.assertIn("GOOGLE_REDIRECT_URI=https://ccnode.briconbric.com/rhdashboard/auth/callback", readme)
         self.assertIn("t_compensation_batch_record", readme)
         self.assertIn("后台补偿奖品", readme)
         self.assertIn("门诊票流水仅统计 `t_special_clinic_ticket_log`", readme)
         deploy_section = re.search(r"## ccnode 简单发布流程(?P<body>.*)", readme, re.S)
         self.assertIsNotNone(deploy_section)
         self.assertNotIn("http://178.239.117.99/rhdashboard/", deploy_section.group("body"))
+
+    def test_dashboard_auth_defaults_to_google_sso_allowlist(self):
+        source = Path("app/app.py").read_text(encoding="utf-8")
+
+        self.assertIn('AUTH_MODE = os.getenv("OPS_DASHBOARD_AUTH_MODE", "google")', source)
+        self.assertIn('"sunshaoxuan@gmail.com"', source)
+        self.assertIn("AUTH_PUBLIC_ENDPOINTS", source)
+        self.assertIn('"healthz"', source)
+        self.assertIn("GOOGLE_CLIENT_ID", source)
+        self.assertIn("GOOGLE_CLIENT_SECRET", source)
+        self.assertIn("GOOGLE_REDIRECT_URI", source)
+        self.assertIn("oauth.google.authorize_redirect", source)
+        self.assertIn("oauth.google.authorize_access_token", source)
 
     def test_merge_snapshot_history_prefers_recent_prod_recharge(self):
         old_data_dir = app_module.DATA_DIR

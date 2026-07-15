@@ -1,3 +1,4 @@
+import html
 import os
 import sqlite3
 import threading
@@ -9,7 +10,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg
-from flask import Flask, jsonify, render_template, request
+from authlib.integrations.flask_client import OAuth
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -37,8 +40,88 @@ SPECIAL_CLINIC_ITEM_NAMES = {
     1792: "特需门诊票",
 }
 SPECIAL_CLINIC_EVENT_ITEM_IDS = {1351, 1792}
+AUTH_MODE = os.getenv("OPS_DASHBOARD_AUTH_MODE", "google").strip().lower()
+AUTH_ALLOWED_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("OPS_DASHBOARD_ALLOWED_EMAILS", "sunshaoxuan@gmail.com").split(",")
+    if email.strip()
+}
+AUTH_PUBLIC_ENDPOINTS = {"healthz", "favicon", "login", "auth_callback"}
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+app.secret_key = os.getenv("OPS_DASHBOARD_SECRET_KEY", "")
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("OPS_DASHBOARD_COOKIE_SECURE", "true").strip().lower() not in {"0", "false", "no"},
+)
+oauth = OAuth(app)
+
+if AUTH_MODE == "google":
+    oauth.register(
+        name="google",
+        client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
+        client_secret=os.getenv("GOOGLE_CLIENT_SECRET", ""),
+        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+        client_kwargs={"scope": "openid email profile"},
+    )
+
+
+def auth_setup_error():
+    if AUTH_MODE in {"none", "off", "disabled"}:
+        return None
+    if AUTH_MODE != "google":
+        return f"unsupported OPS_DASHBOARD_AUTH_MODE: {AUTH_MODE}"
+    missing = [
+        name for name in ("OPS_DASHBOARD_SECRET_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET")
+        if not os.getenv(name, "").strip()
+    ]
+    if missing:
+        return f"missing required auth env: {', '.join(missing)}"
+    if not AUTH_ALLOWED_EMAILS:
+        return "missing required auth env: OPS_DASHBOARD_ALLOWED_EMAILS"
+    return None
+
+
+def wants_json_response():
+    return request.path.startswith("/api/") or request.accept_mimetypes.best == "application/json"
+
+
+def auth_error_response(message, status=403):
+    if wants_json_response():
+        return jsonify({"error": message}), status
+    escaped_message = html.escape(str(message))
+    return (
+        f"<!doctype html><html><head><meta charset='utf-8'><title>访问受限</title></head>"
+        f"<body><h1>访问受限</h1><p>{escaped_message}</p><p><a href='{url_for('login')}'>重新登录</a></p></body></html>",
+        status,
+    )
+
+
+def safe_next_url(value):
+    next_url = str(value or "/")
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        return "/"
+    return next_url
+
+
+@app.before_request
+def require_dashboard_login():
+    if request.endpoint in AUTH_PUBLIC_ENDPOINTS:
+        return None
+    if AUTH_MODE in {"none", "off", "disabled"}:
+        return None
+    setup_error = auth_setup_error()
+    if setup_error:
+        return auth_error_response(setup_error, 503)
+    user = session.get("user") or {}
+    email = str(user.get("email", "")).lower()
+    if email in AUTH_ALLOWED_EMAILS:
+        return None
+    if wants_json_response():
+        return jsonify({"error": "authentication required"}), 401
+    return redirect(url_for("login", next=request.full_path if request.query_string else request.path))
 
 
 def now_in_zone():
@@ -2173,6 +2256,43 @@ def empty_purchase_insights():
         "background": {"top": [], "buyers": []},
         "skin": {"top": [], "buyers": []},
     }
+
+
+@app.get("/auth/login")
+def login():
+    setup_error = auth_setup_error()
+    if setup_error:
+        return auth_error_response(setup_error, 503)
+    session["next_url"] = safe_next_url(request.args.get("next", "/"))
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "").strip() or url_for("auth_callback", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@app.get("/auth/callback")
+def auth_callback():
+    setup_error = auth_setup_error()
+    if setup_error:
+        return auth_error_response(setup_error, 503)
+    token = oauth.google.authorize_access_token()
+    userinfo = token.get("userinfo")
+    if not userinfo:
+        userinfo = oauth.google.userinfo()
+    email = str(userinfo.get("email", "")).lower()
+    if email not in AUTH_ALLOWED_EMAILS:
+        session.clear()
+        return auth_error_response(f"{email or 'unknown account'} is not allowed", 403)
+    session["user"] = {
+        "email": email,
+        "name": userinfo.get("name", ""),
+        "picture": userinfo.get("picture", ""),
+    }
+    return redirect(safe_next_url(session.pop("next_url", "/")))
+
+
+@app.get("/auth/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.get("/")
