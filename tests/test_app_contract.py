@@ -292,6 +292,8 @@ class AppContractTest(unittest.TestCase):
         source = Path("app/app.py").read_text(encoding="utf-8")
 
         self.assertIn('AUTH_MODE = os.getenv("OPS_DASHBOARD_AUTH_MODE", "firebase")', source)
+        self.assertIn('URL_PREFIX = os.getenv("OPS_DASHBOARD_URL_PREFIX", "")', source)
+        self.assertIn("prefixed_url_for", source)
         self.assertIn('"sunshaoxuan@gmail.com"', source)
         self.assertIn("AUTH_PUBLIC_ENDPOINTS", source)
         self.assertIn('"healthz"', source)
@@ -300,6 +302,31 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("verify_firebase_id_token", source)
         self.assertIn("signInWithPopup", source)
         self.assertIn("/auth/firebase-login", source)
+
+    def test_auth_redirect_respects_subpath_prefix(self):
+        old_auth_mode = app_module.AUTH_MODE
+        old_url_prefix = app_module.URL_PREFIX
+        old_secret_key = app.secret_key
+        old_secret_env = os.environ.get("OPS_DASHBOARD_SECRET_KEY")
+        try:
+            app_module.AUTH_MODE = "firebase"
+            app_module.URL_PREFIX = "/rhdashboard"
+            app.secret_key = "test-secret"
+            os.environ["OPS_DASHBOARD_SECRET_KEY"] = "test-secret"
+            client = app.test_client()
+
+            response = client.get("/")
+
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers["Location"], "/rhdashboard/auth/login?next=/")
+        finally:
+            app_module.AUTH_MODE = old_auth_mode
+            app_module.URL_PREFIX = old_url_prefix
+            app.secret_key = old_secret_key
+            if old_secret_env is None:
+                os.environ.pop("OPS_DASHBOARD_SECRET_KEY", None)
+            else:
+                os.environ["OPS_DASHBOARD_SECRET_KEY"] = old_secret_env
 
     def test_merge_snapshot_history_prefers_recent_prod_recharge(self):
         old_data_dir = app_module.DATA_DIR

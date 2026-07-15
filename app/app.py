@@ -23,6 +23,7 @@ DATA_DIR = Path(os.getenv("OPS_DASHBOARD_DATA_DIR", "/data"))
 SQLITE_PATH = DATA_DIR / "ops_dashboard.sqlite3"
 ZONE_ID = os.getenv("OPS_DASHBOARD_TIME_ZONE", "Asia/Tokyo")
 QUERY_TIMEOUT_SECONDS = int(os.getenv("OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS", "10"))
+URL_PREFIX = os.getenv("OPS_DASHBOARD_URL_PREFIX", "").strip().rstrip("/")
 STAT_TABLE_PAGE_SIZES = {20, 50, 100}
 STAT_TABLE_TABS = {"items", "money", "yuanbao", "prestige", "guild", "registrants"}
 SPECIAL_CLINIC_ZONE_ID = "Asia/Shanghai"
@@ -97,15 +98,31 @@ def auth_error_response(message, status=403):
     escaped_message = html.escape(str(message))
     return (
         f"<!doctype html><html><head><meta charset='utf-8'><title>访问受限</title></head>"
-        f"<body><h1>访问受限</h1><p>{escaped_message}</p><p><a href='{url_for('login')}'>重新登录</a></p></body></html>",
+        f"<body><h1>访问受限</h1><p>{escaped_message}</p><p><a href='{prefixed_url_for('login')}'>重新登录</a></p></body></html>",
         status,
     )
+
+
+def prefixed_path(path):
+    if not URL_PREFIX:
+        return path
+    if path == "/":
+        return URL_PREFIX + "/"
+    return URL_PREFIX + path
+
+
+def prefixed_url_for(endpoint, **values):
+    return prefixed_path(url_for(endpoint, **values))
 
 
 def safe_next_url(value):
     next_url = str(value or "/")
     if not next_url.startswith("/") or next_url.startswith("//"):
         return "/"
+    if URL_PREFIX and next_url == URL_PREFIX:
+        return "/"
+    if URL_PREFIX and next_url.startswith(URL_PREFIX + "/"):
+        next_url = next_url[len(URL_PREFIX):] or "/"
     return next_url
 
 
@@ -192,7 +209,7 @@ LOGIN_TEMPLATE = """<!doctype html>
         try {
             const result = await signInWithPopup(auth, provider);
             const idToken = await result.user.getIdToken();
-            const response = await fetch("{{ url_for('firebase_login') }}", {
+            const response = await fetch("{{ firebase_login_url }}", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({idToken, next: {{ next_url_json|safe }}})
@@ -226,7 +243,7 @@ def require_dashboard_login():
         return None
     if wants_json_response():
         return jsonify({"error": "authentication required"}), 401
-    return redirect(url_for("login", next=request.full_path if request.query_string else request.path))
+    return redirect(prefixed_url_for("login", next=request.full_path if request.query_string else request.path))
 
 
 def now_in_zone():
@@ -2372,6 +2389,7 @@ def login():
     return render_template_string(
         LOGIN_TEMPLATE,
         firebase_config=json.dumps(FIREBASE_WEB_CONFIG, separators=(",", ":")),
+        firebase_login_url=prefixed_url_for("firebase_login"),
         next_url_json=json.dumps(next_url),
     )
 
@@ -2402,7 +2420,7 @@ def firebase_login():
 @app.get("/auth/logout")
 def logout():
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(prefixed_url_for("login"))
 
 
 @app.get("/")
