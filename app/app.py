@@ -176,15 +176,20 @@ LOGIN_TEMPLATE = """<!doctype html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
     <title>登录运营看板</title>
     <style>
-        body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #07111f; color: #eef5ff; }
-        main { width: min(420px, calc(100vw - 32px)); border: 1px solid rgba(151, 178, 214, 0.24); background: rgba(15, 28, 48, 0.92); border-radius: 8px; padding: 28px; box-shadow: 0 24px 80px rgba(0,0,0,0.32); }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: Lato, "Noto Sans SC", "Microsoft YaHei", "Segoe UI", sans-serif; background: #f5f7f8; color: #26323a; }
+        main { position: relative; width: min(420px, calc(100vw - 32px)); overflow: hidden; border: 1px solid #dfe5e8; background: #fff; border-radius: 8px; padding: 32px 28px 28px; box-shadow: 0 12px 32px rgba(38,50,58,0.10); }
+        main::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: #ef6a32; }
         h1 { margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }
-        p { margin: 0 0 20px; color: #98aac3; line-height: 1.6; }
-        button { width: 100%; border: 0; border-radius: 6px; padding: 12px 14px; background: #48d597; color: #04120d; font-weight: 760; cursor: pointer; }
+        p { margin: 0 0 20px; color: #687680; line-height: 1.6; }
+        button { width: 100%; border: 1px solid #ef6a32; border-radius: 6px; padding: 12px 14px; background: #ef6a32; color: #fff; font-weight: 760; cursor: pointer; }
+        button:hover { background: #d95724; border-color: #d95724; }
+        button:focus-visible { outline: 3px solid rgba(7,156,156,0.24); outline-offset: 2px; }
         button:disabled { opacity: 0.55; cursor: wait; }
-        .error { display: none; margin-top: 14px; color: #ff9c8d; font-size: 13px; line-height: 1.5; }
+        .error { display: none; margin-top: 14px; color: #c6415d; font-size: 13px; line-height: 1.5; }
     </style>
 </head>
 <body>

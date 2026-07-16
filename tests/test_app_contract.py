@@ -70,6 +70,35 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('id="weeklyYuanbaoPurchaseChart"', html)
         self.assertIn("renderWeeklyYuanbaoPurchaseChart", html)
 
+    def test_dashboard_supports_persistent_light_and_dark_themes(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn("ops-dashboard-theme", html)
+        self.assertIn("|| 'light'", html)
+        self.assertIn('html[data-theme="dark"]', html)
+        self.assertIn('id="themeToggle"', html)
+        self.assertIn('id="themeIcon"', html)
+        self.assertIn("toggleTheme", html)
+        self.assertIn("syncThemeControl", html)
+        self.assertIn("--bg: #f5f7f8", html)
+        self.assertIn("--primary: #ef6a32", html)
+        self.assertIn("--teal: #079c9c", html)
+        self.assertIn("--chart-grid", html)
+        self.assertNotIn("radial-gradient", html)
+
+    def test_login_page_uses_light_operational_style(self):
+        client = app.test_client()
+        response = client.get("/auth/login")
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("background: #f5f7f8", html)
+        self.assertIn("background: #fff", html)
+        self.assertIn("background: #ef6a32", html)
+        self.assertIn("rgba(7,156,156,0.24)", html)
+
     def test_dashboard_has_broker_stats_page(self):
         client = app.test_client()
         response = client.get("/")
