@@ -358,6 +358,18 @@ class AppContractTest(unittest.TestCase):
         self.assertRegex(script, r'\[string\]\$RemoteHost\s*=\s*"ccnode\.briconbric\.com"')
         self.assertNotRegex(script, r'\[string\]\$RemoteHost\s*=\s*"178\.239\.117\.99"')
 
+    def test_ccnode_statistics_api_uses_restricted_ssh_tunnel(self):
+        compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+        dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+        remote_update = Path("scripts/remote-update.sh").read_text(encoding="utf-8")
+
+        self.assertIn("statistics-tunnel:", compose)
+        self.assertIn("StrictHostKeyChecking=yes", compose)
+        self.assertIn("0.0.0.0:18092:127.0.0.1:18092", compose)
+        self.assertIn("condition: service_healthy", compose)
+        self.assertIn("openssh-client", dockerfile)
+        self.assertIn("ssh/statistics-api.known_hosts", remote_update)
+
     def test_statistics_node_release_targets_streaming_backup(self):
         deploy = Path("scripts/deploy-statistics-node.ps1").read_text(encoding="utf-8")
         compose = Path("docker-compose.statistics.yml").read_text(encoding="utf-8")
@@ -476,7 +488,7 @@ class AppContractTest(unittest.TestCase):
         readme = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("https://ccnode.briconbric.com/rhdashboard/", readme)
         self.assertIn("PROD_DB_URL=postgresql://127.0.0.1:5432/hospital", readme)
-        self.assertIn("OPS_DASHBOARD_STATS_API_URL=http://160.16.91.200:18092", readme)
+        self.assertIn("OPS_DASHBOARD_STATS_API_URL=http://statistics-tunnel:18092", readme)
         self.assertIn("OPS_DASHBOARD_ALLOWED_EMAILS=sunshaoxuan@gmail.com", readme)
         self.assertIn("OPS_DASHBOARD_FIREBASE_PROJECT_ID=r-hospital-c8069", readme)
         self.assertIn("t_compensation_batch_record", readme)

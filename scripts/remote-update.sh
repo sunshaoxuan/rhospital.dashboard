@@ -13,6 +13,10 @@ if [ ! -f ".env" ]; then
   echo "missing $app_dir/.env" >&2
   exit 1
 fi
+if [ ! -f "ssh/statistics-api" ] || [ ! -f "ssh/statistics-api.known_hosts" ]; then
+  echo "missing statistics API tunnel credentials under $app_dir/ssh" >&2
+  exit 1
+fi
 
 mkdir -p data releases
 cp "$compose_file" "$app_dir/docker-compose.yml"

@@ -110,7 +110,7 @@ DASHBOARD_PUBLIC_IP=127.0.0.1
 DASHBOARD_PUBLIC_PORT=18091
 OPS_DASHBOARD_TIME_ZONE=Asia/Tokyo
 OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS=10
-OPS_DASHBOARD_STATS_API_URL=http://160.16.91.200:18092
+OPS_DASHBOARD_STATS_API_URL=http://statistics-tunnel:18092
 OPS_DASHBOARD_STATS_API_TOKEN=<SHARED_RANDOM_TOKEN>
 OPS_DASHBOARD_STATS_API_TIMEOUT_SECONDS=30
 OPS_DASHBOARD_URL_PREFIX=/rhdashboard
@@ -121,6 +121,8 @@ OPS_DASHBOARD_FIREBASE_PROJECT_ID=r-hospital-c8069
 ```
 
 Firebase Authentication 的已获授权网域需要包含 `ccnode.briconbric.com`。`OPS_DASHBOARD_URL_PREFIX=/rhdashboard` 用于登录拦截、登录成功回跳和退出登录链接，不能省略。
+
+ccnode 通过 Compose 内的 `statistics-tunnel` 服务连接统计节点。专用 SSH 私钥保存在 `/rhdashboard/ssh/statistics-api`，已校验的主机公钥保存在 `/rhdashboard/ssh/statistics-api.known_hosts`，两者都只保留在服务器本地。备份节点的对应 `authorized_keys` 条目限制来源为 ccnode，并且只能转发到 `127.0.0.1:18092`。Dashboard 容器只访问 Compose 内部地址 `http://statistics-tunnel:18092`。
 
 首次使用 `/rhdashboard/` 子路径访问时，需要在 ccnode 的 nginx 上追加 location：
 
@@ -145,7 +147,7 @@ OPS_DASHBOARD_TIME_ZONE=Asia/Tokyo
 OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS=10
 ```
 
-同一个令牌写入 ccnode 和统计节点。统计节点 API 端口 `18092` 只允许 ccnode 公网 IP 和本机访问：
+同一个令牌写入 ccnode 和统计节点。当前节点上游网络只开放 SSH，ccnode 通过受限端口转发访问统计 API。主机防火墙继续把 `18092` 限制为 ccnode 公网 IP 和本机访问，作为额外保护：
 
 ```bash
 sudo sh scripts/configure-statistics-api-firewall.sh 203.24.89.50 18092
@@ -157,6 +159,8 @@ sudo sh scripts/configure-statistics-api-firewall.sh 203.24.89.50 18092
 .\scripts\deploy-statistics-node.ps1
 .\scripts\deploy-ccnode.ps1
 ```
+
+日常发布会复用 `/rhdashboard/ssh` 下的专用密钥。`remote-update.sh` 在启动容器前检查私钥和主机公钥，缺少任一文件都会停止发布，避免 Dashboard 在无统计链路的状态下替换线上容器。
 
 ### 日常发布
 

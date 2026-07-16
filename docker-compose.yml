@@ -1,4 +1,40 @@
 services:
+  statistics-tunnel:
+    image: ${DASHBOARD_IMAGE:-hospital-ops-dashboard:local}
+    container_name: rhospital-statistics-tunnel
+    restart: unless-stopped
+    volumes:
+      - ./ssh/statistics-api:/run/secrets/statistics-api:ro
+      - ./ssh/statistics-api.known_hosts:/run/secrets/statistics-api.known_hosts:ro
+    command:
+      - ssh
+      - -N
+      - -T
+      - -i
+      - /run/secrets/statistics-api
+      - -o
+      - UserKnownHostsFile=/run/secrets/statistics-api.known_hosts
+      - -o
+      - StrictHostKeyChecking=yes
+      - -o
+      - BatchMode=yes
+      - -o
+      - ExitOnForwardFailure=yes
+      - -o
+      - ServerAliveInterval=30
+      - -o
+      - ServerAliveCountMax=3
+      - -L
+      - 0.0.0.0:18092:127.0.0.1:18092
+      - ubuntu@160.16.91.200
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18092/healthz', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 64m
+
   ops-dashboard:
     build:
       context: .
@@ -6,6 +42,9 @@ services:
     image: ${DASHBOARD_IMAGE:-hospital-ops-dashboard:local}
     container_name: hospital-ops-dashboard
     restart: unless-stopped
+    depends_on:
+      statistics-tunnel:
+        condition: service_healthy
     ports:
       - "${DASHBOARD_PUBLIC_IP:?set DASHBOARD_PUBLIC_IP}:${DASHBOARD_PUBLIC_PORT:-18091}:8091"
     env_file:
