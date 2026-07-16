@@ -515,7 +515,8 @@
             </div>
             <div class="panel wide">
                 <h2>最快消耗 Top 20</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>来源 ID</th><th>去向</th><th>商品</th><th>数量</th><th>货币</th><th>价格</th><th>来源医院</th><th>获得医院</th><th>耗时分钟</th><th>开始时间</th><th>消耗时间</th></tr></thead><tbody id="toiletFastestRows"></tbody></table></div>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>来源 ID</th><th>去向</th><th>商品</th><th>数量</th><th>货币</th><th>价格</th><th>来源医院</th><th>获得医院</th><th>耗时秒</th><th>进入渠道时间</th><th>成交/捡取时间</th></tr></thead><tbody id="toiletFastestRows"></tbody></table></div>
+                <div class="note">成交耗时从挂单创建算到 PURCHASE 交易；大街捡取耗时从入街记录创建算到成功 STREET_PICKUP。时间显示到秒。</div>
             </div>
             <div class="panel wide">
                 <h2>卖家成交 Top 20</h2>
@@ -876,10 +877,10 @@
         });
         renderSimpleRows('toiletFastestRows', data.fastestConsumed || [], [
             'source_id', 'consume_type', 'item_name', 'quantity', 'currency_type', 'price',
-            'source_hospital_id', 'target_hospital_id', 'consume_minutes', 'started_at', 'consumed_at'
+            'source_hospital_id', 'target_hospital_id', 'consume_seconds', 'started_at', 'consumed_at'
         ], {
             currency_type: value => toiletCurrencyLabel(value),
-            consume_minutes: value => formatMoney(value),
+            consume_seconds: value => formatMoney(value),
         });
         renderSimpleRows('toiletSellerRows', data.sellerLeaderboard || [], [
             'hospital_id', 'hospital_name', 'director_name', 'purchase_count', 'sold_quantity', 'money_amount', 'ingot_amount'

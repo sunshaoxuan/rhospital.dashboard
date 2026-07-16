@@ -2565,7 +2565,7 @@ def load_toilet_market_stats_from_prod():
                        coalesce(l.price, 0) as price,
                        l.seller_hospital_id as source_hospital_id,
                        l.buyer_hospital_id as target_hospital_id,
-                       extract(epoch from (f.sold_at - l.create_time)) / 60.0 as consume_minutes,
+                       extract(epoch from (f.sold_at - l.create_time)) as consume_seconds,
                        l.create_time as started_at,
                        f.sold_at as consumed_at
                 from first_purchase f
@@ -2579,7 +2579,7 @@ def load_toilet_market_stats_from_prod():
                        0::bigint as price,
                        s.source_hospital_id,
                        t.actor_hospital_id as target_hospital_id,
-                       extract(epoch from (t.create_time - s.create_time)) / 60.0 as consume_minutes,
+                       extract(epoch from (t.create_time - s.create_time)) as consume_seconds,
                        s.create_time as started_at,
                        t.create_time as consumed_at
                 from t_toilet_street_item s
@@ -2598,11 +2598,11 @@ def load_toilet_market_stats_from_prod():
                    price,
                    source_hospital_id,
                    target_hospital_id,
-                   round(greatest(consume_minutes, 0)::numeric, 2) as consume_minutes,
-                   to_char(started_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI') as started_at,
-                   to_char(consumed_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI') as consumed_at
+                   round(greatest(consume_seconds, 0)::numeric, 2) as consume_seconds,
+                   to_char(started_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as started_at,
+                   to_char(consumed_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as consumed_at
             from consumed
-            order by consume_minutes asc, consumed_at desc
+            order by consume_seconds asc, consumed_at desc
             limit 20
             """,
             (ZONE_ID, ZONE_ID),

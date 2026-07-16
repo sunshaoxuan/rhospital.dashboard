@@ -155,6 +155,9 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("滞销挂单", html)
         self.assertIn("商品热度 Top 30", html)
         self.assertIn("最快消耗 Top 20", html)
+        self.assertIn("耗时秒", html)
+        self.assertIn("进入渠道时间", html)
+        self.assertIn("成交耗时从挂单创建算到 PURCHASE 交易", html)
         self.assertIn("卖家成交 Top 20", html)
         self.assertIn("买家购买 Top 20", html)
         self.assertIn('id="toiletDailyChart"', html)
@@ -174,6 +177,10 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("listing_source = 'ADMIN'", source)
         self.assertIn("TOILET_MARKET_STALE_HOURS = 48", source)
         self.assertIn("fastestConsumed", source)
+        self.assertIn("extract(epoch from (f.sold_at - l.create_time)) as consume_seconds", source)
+        self.assertIn("extract(epoch from (t.create_time - s.create_time)) as consume_seconds", source)
+        self.assertIn("as consume_seconds", source)
+        self.assertIn("'YYYY-MM-DD HH24:MI:SS'", source)
         self.assertIn("pickup_quantity", source)
 
     def test_overall_stats_include_weekly_yuanbao_spending(self):
