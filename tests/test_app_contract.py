@@ -342,6 +342,18 @@ class AppContractTest(unittest.TestCase):
         self.assertRegex(script, r'\[string\]\$RemoteHost\s*=\s*"ccnode\.briconbric\.com"')
         self.assertNotRegex(script, r'\[string\]\$RemoteHost\s*=\s*"178\.239\.117\.99"')
 
+    def test_ccnode_release_restores_database_firewall_rule(self):
+        remote_update = Path("scripts/remote-update.sh").read_text(encoding="utf-8")
+        configure = Path("scripts/configure-ccnode-db-firewall.sh").read_text(encoding="utf-8")
+
+        self.assertIn("/usr/local/sbin/rhdashboard-db-firewall.sh", remote_update)
+        self.assertIn("178.239.117.99", configure)
+        self.assertIn("172.18.0.0/16", configure)
+        self.assertIn("--sport 35432", configure)
+        self.assertIn("OnUnitActiveSec=30s", configure)
+        self.assertIn("rhdashboard-db-firewall.timer", configure)
+        self.assertNotIn("RemainAfterExit=yes", configure)
+
     def test_documented_stats_source_is_orangevps_only(self):
         readme = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("https://ccnode.briconbric.com/rhdashboard/", readme)

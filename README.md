@@ -129,6 +129,15 @@ sh scripts/configure-ccnode-nginx-rhdashboard.sh
 
 该脚本会写入 ccnode 的 nginx 配置，再执行 `nginx -t` 和 reload。
 
+ccnode 的 mailcow 防火墙链会拦截来自生产数据库 `178.239.117.99:35432` 的容器返回流量。首次准备或规则缺失时安装定时校验：
+
+```bash
+cd /rhdashboard
+sh scripts/configure-ccnode-db-firewall.sh
+```
+
+该脚本只允许生产数据库端口返回到 dashboard 所在的 `172.18.0.0/16` Docker 网段，并每 30 秒检查一次规则；日常发布也会在容器更新后立即执行同一规则脚本。
+
 ### 日常发布
 
 在 Windows 本地仓库提交代码后运行：
@@ -146,8 +155,9 @@ sh scripts/configure-ccnode-nginx-rhdashboard.sh
 5. 推送当前 git 分支到 `origin`。
 6. 上传镜像包、`docker-compose.yml` 和远端更新脚本到 `/rhdashboard/releases/<tag>/`。
 7. 远端 `docker load` 镜像并用 `docker compose up -d --no-build` 更新容器。
-8. 检查 `http://127.0.0.1:18091/healthz`。
-9. 清理不再使用的旧镜像。
+8. 补回 dashboard 到生产数据库的窄范围防火墙放行规则。
+9. 检查 `http://127.0.0.1:18091/healthz`。
+10. 清理不再使用的旧镜像。
 
 如只想演练上传和远端更新，不推送 git：
 
