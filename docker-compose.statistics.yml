@@ -1,0 +1,28 @@
+services:
+  statistics-api:
+    image: ${DASHBOARD_IMAGE:-hospital-ops-dashboard:local}
+    container_name: rhospital-statistics-api
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    command:
+      - gunicorn
+      - --bind
+      - 0.0.0.0:18092
+      - --workers
+      - "1"
+      - --threads
+      - "6"
+      - --timeout
+      - "60"
+      - app.app:app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18092/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 384m

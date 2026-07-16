@@ -148,6 +148,18 @@
             background: var(--panel);
             min-width: 72px;
         }
+        .tab-btn.is-loading { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+        .tab-btn.is-loading::before, .inline-spinner::before {
+            content: "";
+            flex: 0 0 auto;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--line-strong);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: refreshSpin 0.78s linear infinite;
+        }
+        .inline-spinner { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
         .tab-btn.active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
         .clinic-week-tabs { margin: 0 0 16px; }
         .clinic-week-btn { min-width: 112px; padding: 8px 12px; text-align: left; }
@@ -321,8 +333,8 @@
 <main class="shell">
     <div class="topbar">
         <div>
-            <h1>本地运营统计看板</h1>
-            <div class="subtitle">独立本机服务，只读连接数据库，自动刷新统计结果</div>
+            <h1>荣光医院运营统计</h1>
+            <div class="subtitle">运营数据来自只读流式副本</div>
         </div>
         <div class="toolbar">
             <span id="generatedAt">等待加载</span>
@@ -548,25 +560,26 @@
 <script>
     const charts = {};
     const renderState = {};
+    const PAGE_KEYS = ['overall', 'specialClinic', 'broker', 'toiletMarket'];
+    const PAGE_LABELS = {overall: '运营总览', specialClinic: '特需门诊', broker: '医托拉人', toiletMarket: '跳蚤市场'};
+    const pageData = {overall: null, broker: null, toiletMarket: null};
+    const pageLoadState = Object.fromEntries(PAGE_KEYS.map(page => [page, {promise: null, pending: false, loaded: false, error: ''}]));
     let currentPage = 'overall';
-    let activeRefresh = null;
-    let pendingRefresh = false;
+    let statTableRequestId = 0;
     const statTableState = {tab: 'items', page: 1, pageSize: 20, total: 0};
-    const specialClinicState = {data: null, selectedWeekKey: null, latestWeekKey: null, userSelectedWeek: false};
+    const specialClinicState = {data: null, selectedWeekKey: null, latestWeekKey: null, userSelectedWeek: false, loadingWeekKey: null};
     const THEME_STORAGE_KEY = 'ops-dashboard-theme';
 
     syncThemeControl();
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
-    document.getElementById('refreshBtn').addEventListener('click', refreshCurrentPage);
+    document.getElementById('refreshBtn').addEventListener('click', () => refreshPage(currentPage, true));
     document.querySelectorAll('[data-page-tab]').forEach(button => {
         button.addEventListener('click', () => switchPage(button.dataset.pageTab));
     });
     document.getElementById('clinicWeekTabs').addEventListener('click', event => {
         const button = event.target.closest('[data-clinic-week]');
         if (!button || !specialClinicState.data) return;
-        specialClinicState.selectedWeekKey = button.dataset.clinicWeek;
-        specialClinicState.userSelectedWeek = true;
-        renderSpecialClinic(specialClinicState.data);
+        selectSpecialClinicWeek(button.dataset.clinicWeek);
     });
     document.getElementById('itemModalClose').addEventListener('click', closeItemModal);
     document.querySelectorAll('[data-stat-tab]').forEach(button => {
@@ -599,9 +612,9 @@
         if (event.key === 'Escape') closeItemModal();
     });
     window.addEventListener('load', () => {
-        refreshCurrentPage();
+        PAGE_KEYS.forEach(page => refreshPage(page));
         loadStatTable();
-        setInterval(refreshCurrentPage, 60000);
+        setInterval(() => refreshPage(currentPage, true), 60000);
     });
 
     function currentTheme() {
@@ -626,8 +639,8 @@
         Object.values(charts).forEach(chart => chart.destroy());
         Object.keys(charts).forEach(key => delete charts[key]);
         Object.keys(renderState).forEach(key => delete renderState[key]);
-        refreshCurrentPage();
-        if (currentPage === 'overall') loadStatTable();
+        renderCachedPage(currentPage);
+        refreshPage(currentPage, true);
     }
 
     function switchPage(page) {
@@ -639,37 +652,63 @@
         document.getElementById('specialClinicPage').hidden = currentPage !== 'specialClinic';
         document.getElementById('brokerPage').hidden = currentPage !== 'broker';
         document.getElementById('toiletMarketPage').hidden = currentPage !== 'toiletMarket';
-        refreshCurrentPage();
+        renderCachedPage(currentPage);
+        showCurrentPageError();
+        updateRefreshControl();
+        refreshPage(currentPage);
     }
 
-    async function refreshCurrentPage() {
-        if (activeRefresh) {
-            pendingRefresh = true;
-            return activeRefresh;
+    function pageLoader(page) {
+        if (page === 'specialClinic') return loadSpecialClinicStats(specialClinicState.selectedWeekKey);
+        if (page === 'broker') return loadBrokerStats();
+        if (page === 'toiletMarket') return loadToiletMarketStats();
+        return loadStats();
+    }
+
+    function refreshPage(page = currentPage, force = false) {
+        const state = pageLoadState[page];
+        if (!state) return Promise.resolve();
+        if (state.promise) {
+            if (force) state.pending = true;
+            return state.promise;
         }
-        setRefreshLoading(true);
-        const refreshPage = currentPage;
-        const refreshPromise = refreshPage === 'specialClinic'
-            ? loadSpecialClinicStats()
-            : refreshPage === 'broker'
-                ? loadBrokerStats()
-                : refreshPage === 'toiletMarket'
-                    ? loadToiletMarketStats()
-                    : loadStats();
-        activeRefresh = refreshPromise
+        if (state.loaded && !force) return Promise.resolve();
+        setPageLoading(page, true);
+        state.promise = Promise.resolve(pageLoader(page))
+            .then(() => {
+                state.loaded = true;
+                state.error = '';
+                if (currentPage === page) showCurrentPageError();
+            })
+            .catch(error => {
+                state.error = `读取${PAGE_LABELS[page]}失败：${error.message || error}`;
+                if (currentPage === page) showCurrentPageError();
+            })
             .finally(() => {
-                activeRefresh = null;
-                if (pendingRefresh) {
-                    pendingRefresh = false;
-                    refreshCurrentPage();
-                } else {
-                    setRefreshLoading(false);
+                state.promise = null;
+                setPageLoading(page, false);
+                if (state.pending) {
+                    state.pending = false;
+                    refreshPage(page, true);
                 }
             });
-        return activeRefresh;
+        if (currentPage === page) updateRefreshControl();
+        return state.promise;
     }
 
-    function setRefreshLoading(loading) {
+    function setPageLoading(page, loading) {
+        const tab = document.querySelector(`[data-page-tab="${page}"]`);
+        const section = document.getElementById(`${page}Page`);
+        if (tab) {
+            tab.classList.toggle('is-loading', loading);
+            tab.setAttribute('aria-busy', loading ? 'true' : 'false');
+        }
+        if (section) section.setAttribute('aria-busy', loading ? 'true' : 'false');
+        if (currentPage === page) updateRefreshControl();
+    }
+
+    function updateRefreshControl() {
+        const loading = Boolean(pageLoadState[currentPage]?.promise);
         const button = document.getElementById('refreshBtn');
         const label = document.getElementById('refreshBtnText');
         button.classList.toggle('is-loading', loading);
@@ -678,57 +717,56 @@
         label.textContent = loading ? '刷新中' : '刷新';
     }
 
-    async function loadStats() {
+    function showCurrentPageError() {
         const error = document.getElementById('error');
-        error.style.display = 'none';
-        try {
-            const response = await fetch('api/stats', {cache: 'no-store'});
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            render(await response.json());
-        } catch (e) {
-            error.textContent = `读取统计失败：${e.message || e}`;
-            error.style.display = 'block';
-        }
+        const message = pageLoadState[currentPage]?.error || '';
+        error.textContent = message;
+        error.style.display = message ? 'block' : 'none';
     }
 
-    async function loadSpecialClinicStats() {
-        const error = document.getElementById('error');
-        error.style.display = 'none';
+    function renderCachedPage(page) {
+        if (page === 'overall' && pageData.overall) render(pageData.overall);
+        if (page === 'specialClinic' && specialClinicState.data) renderSpecialClinic(specialClinicState.data);
+        if (page === 'broker' && pageData.broker) renderBrokerStats(pageData.broker);
+        if (page === 'toiletMarket' && pageData.toiletMarket) renderToiletMarketStats(pageData.toiletMarket);
+    }
+
+    async function fetchJson(url) {
+        const response = await fetch(url, {cache: 'no-store'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+    }
+
+    async function loadStats() {
+        const data = await fetchJson('api/stats');
+        pageData.overall = data;
+        if (currentPage === 'overall') render(data);
+    }
+
+    async function loadSpecialClinicStats(weekKey = null) {
+        const params = weekKey ? `?${new URLSearchParams({week: weekKey})}` : '';
+        specialClinicState.loadingWeekKey = weekKey;
+        if (specialClinicState.data) renderSpecialClinicWeekTabs(specialClinicState.data, specialClinicState.selectedWeekKey);
         try {
-            const response = await fetch('api/special-clinic-stats', {cache: 'no-store'});
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            renderSpecialClinic(await response.json());
-        } catch (e) {
-            error.textContent = `读取特需门诊统计失败：${e.message || e}`;
-            error.style.display = 'block';
+            const data = await fetchJson(`api/special-clinic-stats${params}`);
+            mergeSpecialClinicPayload(data);
+            if (currentPage === 'specialClinic') renderSpecialClinic(specialClinicState.data);
+        } finally {
+            specialClinicState.loadingWeekKey = null;
+            if (specialClinicState.data) renderSpecialClinicWeekTabs(specialClinicState.data, specialClinicState.selectedWeekKey);
         }
     }
 
     async function loadBrokerStats() {
-        const error = document.getElementById('error');
-        error.style.display = 'none';
-        try {
-            const response = await fetch('api/broker-stats', {cache: 'no-store'});
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            renderBrokerStats(await response.json());
-        } catch (e) {
-            error.textContent = `读取医托拉人统计失败：${e.message || e}`;
-            error.style.display = 'block';
-        }
+        const data = await fetchJson('api/broker-stats');
+        pageData.broker = data;
+        if (currentPage === 'broker') renderBrokerStats(data);
     }
 
     async function loadToiletMarketStats() {
-        const error = document.getElementById('error');
-        error.style.display = 'none';
-        try {
-            const response = await fetch('api/toilet-market-stats', {cache: 'no-store'});
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            renderToiletMarketStats(await response.json());
-        } catch (e) {
-            error.textContent = `读取跳蚤市场统计失败：${e.message || e}`;
-            error.style.display = 'block';
-        }
+        const data = await fetchJson('api/toilet-market-stats');
+        pageData.toiletMarket = data;
+        if (currentPage === 'toiletMarket') renderToiletMarketStats(data);
     }
 
     function render(data) {
@@ -1038,29 +1076,68 @@
         return Array.isArray(data.weeklyPages) && data.weeklyPages.length ? data.weeklyPages : [data];
     }
 
-    function resolveSpecialClinicView(data) {
-        const pages = getSpecialClinicPages(data);
-        const latestKey = pages[0]?.week?.key || '';
-        const hasSelected = pages.some(page => page.week?.key === specialClinicState.selectedWeekKey);
-        if (!specialClinicState.selectedWeekKey || !hasSelected || (!specialClinicState.userSelectedWeek && specialClinicState.latestWeekKey !== latestKey)) {
+    function getSpecialClinicWeekOptions(data) {
+        if (Array.isArray(data.weekOptions) && data.weekOptions.length) return data.weekOptions;
+        return getSpecialClinicPages(data).map(page => page.week || {}).filter(week => week.key);
+    }
+
+    function mergeSpecialClinicPayload(data) {
+        const previous = specialClinicState.data || {};
+        const pages = new Map();
+        getSpecialClinicPages(previous).forEach(page => {
+            if (page?.week?.key) pages.set(page.week.key, page);
+        });
+        getSpecialClinicPages(data).forEach(page => {
+            if (page?.week?.key) pages.set(page.week.key, page);
+        });
+        const weekOptions = getSpecialClinicWeekOptions(data).length
+            ? getSpecialClinicWeekOptions(data)
+            : getSpecialClinicWeekOptions(previous);
+        specialClinicState.data = {
+            ...previous,
+            ...data,
+            weekOptions,
+            weeklyPages: weekOptions.map(week => pages.get(week.key)).filter(Boolean),
+        };
+        const latestKey = weekOptions[0]?.key || '';
+        if (!specialClinicState.selectedWeekKey || (!specialClinicState.userSelectedWeek && specialClinicState.latestWeekKey !== latestKey)) {
             specialClinicState.selectedWeekKey = latestKey;
         }
         specialClinicState.latestWeekKey = latestKey;
-        return pages.find(page => page.week?.key === specialClinicState.selectedWeekKey) || pages[0] || data;
+    }
+
+    function selectSpecialClinicWeek(weekKey) {
+        if (!weekKey) return;
+        specialClinicState.selectedWeekKey = weekKey;
+        specialClinicState.userSelectedWeek = true;
+        const loaded = getSpecialClinicPages(specialClinicState.data || {}).some(page => page?.week?.key === weekKey);
+        renderSpecialClinic(specialClinicState.data);
+        if (!loaded) refreshPage('specialClinic', true);
+    }
+
+    function resolveSpecialClinicView(data) {
+        const pages = getSpecialClinicPages(data);
+        const latestKey = getSpecialClinicWeekOptions(data)[0]?.key || pages[0]?.week?.key || '';
+        if (!specialClinicState.selectedWeekKey || (!specialClinicState.userSelectedWeek && specialClinicState.latestWeekKey !== latestKey)) {
+            specialClinicState.selectedWeekKey = latestKey;
+        }
+        specialClinicState.latestWeekKey = latestKey;
+        return pages.find(page => page.week?.key === specialClinicState.selectedWeekKey) || null;
     }
 
     function renderSpecialClinicWeekTabs(data, selectedKey) {
         const container = document.getElementById('clinicWeekTabs');
-        const pages = Array.isArray(data.weeklyPages) ? data.weeklyPages : [];
+        const weeks = getSpecialClinicWeekOptions(data);
         container.innerHTML = '';
-        container.hidden = pages.length === 0;
-        pages.forEach(page => {
-            const week = page.week || {};
+        container.hidden = weeks.length === 0;
+        weeks.forEach(week => {
             const key = week.key || '';
             const button = document.createElement('button');
             button.type = 'button';
-            button.className = `tab-btn clinic-week-btn${key === selectedKey ? ' active' : ''}`;
+            const loading = key === specialClinicState.loadingWeekKey;
+            button.className = `tab-btn clinic-week-btn${key === selectedKey ? ' active' : ''}${loading ? ' is-loading' : ''}`;
             button.dataset.clinicWeek = key;
+            button.setAttribute('aria-busy', loading ? 'true' : 'false');
             button.innerHTML = `<span>${escapeHtml(week.label || key || '-')}</span><span class="week-range">${escapeHtml(week.range_label || key || '-')}</span>`;
             container.appendChild(button);
         });
@@ -1080,6 +1157,7 @@
         if (renderState.specialClinicSignature === signature) return;
         renderState.specialClinicSignature = signature;
         renderSpecialClinicWeekTabs(data, specialClinicState.selectedWeekKey);
+        if (!view) return;
         if (data.sourceError) {
             const error = document.getElementById('error');
             error.textContent = `特需门诊数据源暂不可用：${data.sourceError}`;
@@ -1286,11 +1364,15 @@
     }
 
     async function loadStatTable() {
+        const requestId = ++statTableRequestId;
         document.querySelectorAll('[data-stat-tab]').forEach(button => {
             button.classList.toggle('active', button.dataset.statTab === statTableState.tab);
+            const loading = button.dataset.statTab === statTableState.tab;
+            button.classList.toggle('is-loading', loading);
+            button.setAttribute('aria-busy', loading ? 'true' : 'false');
         });
         const tbody = document.getElementById('statTableRows');
-        tbody.innerHTML = '<tr><td>读取中...</td></tr>';
+        tbody.innerHTML = '<tr><td><span class="inline-spinner">读取中...</span></td></tr>';
         try {
             const params = new URLSearchParams({
                 tab: statTableState.tab,
@@ -1299,11 +1381,20 @@
             });
             const response = await fetch(`api/stat-table?${params}`, {cache: 'no-store'});
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            renderStatTable(await response.json());
+            const data = await response.json();
+            if (requestId === statTableRequestId) renderStatTable(data);
         } catch (e) {
+            if (requestId !== statTableRequestId) return;
             document.getElementById('statTableHead').innerHTML = '';
             tbody.innerHTML = `<tr><td>读取失败：${escapeHtml(e.message || e)}</td></tr>`;
             setText('statPagerInfo', '-');
+        } finally {
+            if (requestId === statTableRequestId) {
+                document.querySelectorAll('[data-stat-tab]').forEach(button => {
+                    button.classList.remove('is-loading');
+                    button.setAttribute('aria-busy', 'false');
+                });
+            }
         }
     }
 

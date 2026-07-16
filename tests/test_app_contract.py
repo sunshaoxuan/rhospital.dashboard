@@ -36,6 +36,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/auth/firebase-login", rules)
         self.assertIn("/auth/logout", rules)
         self.assertIn("/api/stats", rules)
+        self.assertIn("/api/source-health", rules)
         self.assertIn("/api/special-clinic-stats", rules)
         self.assertIn("/api/broker-stats", rules)
         self.assertIn("/api/toilet-market-stats", rules)
@@ -69,6 +70,12 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("最近10周元宝购入量", html)
         self.assertIn('id="weeklyYuanbaoPurchaseChart"', html)
         self.assertIn("renderWeeklyYuanbaoPurchaseChart", html)
+        self.assertIn("const pageLoadState", html)
+        self.assertIn("PAGE_KEYS.forEach(page => refreshPage(page))", html)
+        self.assertIn("setPageLoading", html)
+        self.assertIn("renderCachedPage", html)
+        self.assertNotIn("let activeRefresh", html)
+        self.assertNotIn("let pendingRefresh", html)
 
     def test_dashboard_supports_persistent_light_and_dark_themes(self):
         client = app.test_client()
@@ -312,6 +319,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('"cycle_day": cabinet_row.get("cycle_day", 0)', source)
         self.assertIn("left join record_weekly", source)
         self.assertIn('"weeklyPages": weekly_pages', source)
+        self.assertIn('"weekOptions": week_options', source)
+        self.assertIn("load_special_clinic_weekly_pages(conn, weekly_cabinet, week_start)", source)
 
     def test_dashboard_uses_weekly_cabinet_copy(self):
         client = app.test_client()
@@ -321,7 +330,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("每周库存消耗", html)
         self.assertIn("refresh-btn", html)
         self.assertIn("refreshSpin", html)
-        self.assertIn("setRefreshLoading", html)
+        self.assertIn("updateRefreshControl", html)
         self.assertIn("aria-busy", html)
         self.assertIn("刷新中", html)
         self.assertIn("门诊票流水", html)
@@ -349,22 +358,125 @@ class AppContractTest(unittest.TestCase):
         self.assertRegex(script, r'\[string\]\$RemoteHost\s*=\s*"ccnode\.briconbric\.com"')
         self.assertNotRegex(script, r'\[string\]\$RemoteHost\s*=\s*"178\.239\.117\.99"')
 
-    def test_ccnode_release_restores_database_firewall_rule(self):
+    def test_statistics_node_release_targets_streaming_backup(self):
+        deploy = Path("scripts/deploy-statistics-node.ps1").read_text(encoding="utf-8")
+        compose = Path("docker-compose.statistics.yml").read_text(encoding="utf-8")
+        firewall = Path("scripts/configure-statistics-api-firewall.sh").read_text(encoding="utf-8")
+
+        self.assertIn('RemoteHost = "160.16.91.200"', deploy)
+        self.assertIn("network_mode: host", compose)
+        self.assertIn("0.0.0.0:18092", compose)
+        self.assertIn("mem_limit: 384m", compose)
+        self.assertIn("203.24.89.50", firewall)
+        self.assertIn("--dport ${api_port} -j DROP", firewall)
+
+    def test_stat_table_uses_single_window_count_query(self):
+        source = Path("app/app.py").read_text(encoding="utf-8")
+
+        self.assertIn("def window_paged_query", source)
+        self.assertIn("count(*) over() as total_count", source)
+        self.assertIn("row.pop(\"total_count\", None)", source)
+
+    def test_production_connection_is_reused_per_worker_thread(self):
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def execute(self, *_):
+                return None
+
+        class FakeConnection:
+            def __init__(self):
+                self.closed = False
+                self.autocommit = False
+                self.read_only = False
+                self.rollback_count = 0
+
+            def cursor(self):
+                return FakeCursor()
+
+            def rollback(self):
+                self.rollback_count += 1
+
+            def close(self):
+                self.closed = True
+
+        old_state = app_module.prod_connection_state
+        app_module.prod_connection_state = type(old_state)()
+        fake = FakeConnection()
+        try:
+            with patch.object(app_module, "require_config", return_value="test"):
+                with patch.object(app_module.psycopg, "connect", return_value=fake) as connect:
+                    with app_module.prod_connection():
+                        pass
+                    with app_module.prod_connection():
+                        pass
+
+            self.assertEqual(connect.call_count, 1)
+            self.assertTrue(fake.read_only)
+            self.assertEqual(fake.rollback_count, 2)
+        finally:
+            app_module.discard_prod_connection()
+            app_module.prod_connection_state = old_state
+
+    def test_statistics_service_requires_bearer_token(self):
+        old_mode = app_module.SERVICE_MODE
+        old_token = app_module.STATS_API_TOKEN
+        try:
+            app_module.SERVICE_MODE = "statistics_api"
+            app_module.STATS_API_TOKEN = "service-token"
+            client = app.test_client()
+
+            api_response = client.get("/api/stats")
+            page_response = client.get("/")
+            health_response = client.get("/healthz")
+
+            self.assertEqual(api_response.status_code, 401)
+            self.assertEqual(page_response.status_code, 404)
+            self.assertEqual(health_response.status_code, 200)
+        finally:
+            app_module.SERVICE_MODE = old_mode
+            app_module.STATS_API_TOKEN = old_token
+
+    def test_dashboard_proxies_statistics_api(self):
+        old_mode = app_module.SERVICE_MODE
+        old_url = app_module.STATS_API_BASE_URL
+        old_token = app_module.STATS_API_TOKEN
+        try:
+            app_module.SERVICE_MODE = "dashboard"
+            app_module.STATS_API_BASE_URL = "http://160.16.91.200:18092"
+            app_module.STATS_API_TOKEN = "service-token"
+            with patch.object(app_module, "fetch_stats_api", return_value={"summary": {}}) as fetch:
+                response = app.test_client().get("/api/broker-stats")
+
+            self.assertEqual(response.status_code, 200)
+            fetch.assert_called_once_with("/api/broker-stats")
+        finally:
+            app_module.SERVICE_MODE = old_mode
+            app_module.STATS_API_BASE_URL = old_url
+            app_module.STATS_API_TOKEN = old_token
+
+    def test_special_clinic_route_loads_only_requested_week(self):
+        with patch.object(app_module, "load_special_clinic_stats_from_prod", return_value={"weeklyPages": []}) as loader:
+            response = app.test_client().get("/api/special-clinic-stats?week=2026-07-08")
+
+        self.assertEqual(response.status_code, 200)
+        loader.assert_called_once_with("2026-07-08")
+
+    def test_ccnode_uses_statistics_api_without_database_firewall_dependency(self):
         remote_update = Path("scripts/remote-update.sh").read_text(encoding="utf-8")
-        configure = Path("scripts/configure-ccnode-db-firewall.sh").read_text(encoding="utf-8")
 
-        self.assertIn("/usr/local/sbin/rhdashboard-db-firewall.sh", remote_update)
-        self.assertIn("178.239.117.99", configure)
-        self.assertIn("172.18.0.0/16", configure)
-        self.assertIn("--sport 35432", configure)
-        self.assertIn("OnUnitActiveSec=30s", configure)
-        self.assertIn("rhdashboard-db-firewall.timer", configure)
-        self.assertNotIn("RemainAfterExit=yes", configure)
+        self.assertNotIn("rhdashboard-db-firewall.sh", remote_update)
+        self.assertIn("OPS_DASHBOARD_STATS_API_URL", Path("app/app.py").read_text(encoding="utf-8"))
 
-    def test_documented_stats_source_is_orangevps_only(self):
+    def test_documented_stats_source_is_streaming_backup_api(self):
         readme = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("https://ccnode.briconbric.com/rhdashboard/", readme)
-        self.assertIn("PROD_DB_URL=postgresql://178.239.117.99:35432/hospital", readme)
+        self.assertIn("PROD_DB_URL=postgresql://127.0.0.1:5432/hospital", readme)
+        self.assertIn("OPS_DASHBOARD_STATS_API_URL=http://160.16.91.200:18092", readme)
         self.assertIn("OPS_DASHBOARD_ALLOWED_EMAILS=sunshaoxuan@gmail.com", readme)
         self.assertIn("OPS_DASHBOARD_FIREBASE_PROJECT_ID=r-hospital-c8069", readme)
         self.assertIn("t_compensation_batch_record", readme)

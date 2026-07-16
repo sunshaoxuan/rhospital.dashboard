@@ -21,10 +21,6 @@ docker load -i "$image_tar"
 
 DASHBOARD_IMAGE="$image_name:$image_tag" docker compose up -d --no-build
 
-if [ -x /usr/local/sbin/rhdashboard-db-firewall.sh ]; then
-  /usr/local/sbin/rhdashboard-db-firewall.sh
-fi
-
 public_port="$(grep '^DASHBOARD_PUBLIC_PORT=' .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\r')"
 public_port="${public_port:-18091}"
 for i in $(seq 1 30); do

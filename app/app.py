@@ -1,5 +1,6 @@
 import html
 import base64
+import hmac
 import json
 import os
 import sqlite3
@@ -23,6 +24,11 @@ DATA_DIR = Path(os.getenv("OPS_DASHBOARD_DATA_DIR", "/data"))
 SQLITE_PATH = DATA_DIR / "ops_dashboard.sqlite3"
 ZONE_ID = os.getenv("OPS_DASHBOARD_TIME_ZONE", "Asia/Tokyo")
 QUERY_TIMEOUT_SECONDS = int(os.getenv("OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS", "10"))
+PROD_CONNECTION_PING_INTERVAL_SECONDS = int(os.getenv("OPS_DASHBOARD_CONNECTION_PING_INTERVAL_SECONDS", "30"))
+SERVICE_MODE = os.getenv("OPS_DASHBOARD_SERVICE_MODE", "dashboard").strip().lower()
+STATS_API_BASE_URL = os.getenv("OPS_DASHBOARD_STATS_API_URL", "").strip().rstrip("/")
+STATS_API_TOKEN = os.getenv("OPS_DASHBOARD_STATS_API_TOKEN", "").strip()
+STATS_API_TIMEOUT_SECONDS = int(os.getenv("OPS_DASHBOARD_STATS_API_TIMEOUT_SECONDS", "30"))
 URL_PREFIX = os.getenv("OPS_DASHBOARD_URL_PREFIX", "").strip().rstrip("/")
 STAT_TABLE_PAGE_SIZES = {20, 50, 100}
 STAT_TABLE_TABS = {"items", "money", "yuanbao", "prestige", "guild", "registrants"}
@@ -63,6 +69,8 @@ FIREBASE_WEB_CONFIG = {
     "appId": os.getenv("OPS_DASHBOARD_FIREBASE_APP_ID", "1:165812175721:web:0b6cf47683368ffe5833f8"),
 }
 firebase_cert_cache = {"expires_at": 0.0, "certs": {}}
+prod_connection_state = threading.local()
+stats_api_session_state = threading.local()
 
 app = Flask(__name__, template_folder=str(APP_DIR / "templates"))
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -236,6 +244,18 @@ LOGIN_TEMPLATE = """<!doctype html>
 
 @app.before_request
 def require_dashboard_login():
+    if SERVICE_MODE == "statistics_api":
+        if request.endpoint == "healthz":
+            return None
+        if not request.path.startswith("/api/"):
+            return jsonify({"error": "not found"}), 404
+        if not STATS_API_TOKEN:
+            return jsonify({"error": "statistics API token is not configured"}), 503
+        supplied = request.headers.get("Authorization", "")
+        expected = f"Bearer {STATS_API_TOKEN}"
+        if not hmac.compare_digest(supplied, expected):
+            return jsonify({"error": "statistics API authentication required"}), 401
+        return None
     if request.endpoint in AUTH_PUBLIC_ENDPOINTS:
         return None
     if AUTH_MODE in {"none", "off", "disabled"}:
@@ -263,20 +283,102 @@ def require_config(name: str) -> str:
     return value
 
 
-@contextmanager
-def prod_connection():
-    with psycopg.connect(
+def use_stats_api():
+    return SERVICE_MODE != "statistics_api" and bool(STATS_API_BASE_URL)
+
+
+def get_stats_api_session():
+    client = getattr(stats_api_session_state, "client", None)
+    if client is None:
+        client = requests.Session()
+        stats_api_session_state.client = client
+    return client
+
+
+def fetch_stats_api(path, params=None):
+    if not STATS_API_TOKEN:
+        raise RuntimeError("missing required env: OPS_DASHBOARD_STATS_API_TOKEN")
+    response = get_stats_api_session().get(
+        f"{STATS_API_BASE_URL}{path}",
+        params=params,
+        headers={"Authorization": f"Bearer {STATS_API_TOKEN}"},
+        timeout=STATS_API_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def create_prod_connection():
+    conn = psycopg.connect(
         require_config("PROD_DB_URL"),
         user=require_config("PROD_DB_USERNAME"),
         password=require_config("PROD_DB_PASSWORD"),
         connect_timeout=QUERY_TIMEOUT_SECONDS,
-    ) as conn:
-        conn.read_only = True
+    )
+    conn.autocommit = True
+    try:
         with conn.cursor() as cur:
             cur.execute("set default_transaction_read_only = on")
             cur.execute(f"set statement_timeout = '{QUERY_TIMEOUT_SECONDS}s'")
             cur.execute("set idle_in_transaction_session_timeout = '10s'")
+    finally:
+        conn.autocommit = False
+    conn.read_only = True
+    return conn
+
+
+def discard_prod_connection(conn=None):
+    current = getattr(prod_connection_state, "connection", None)
+    target = conn or current
+    if target is not None:
+        try:
+            target.close()
+        except Exception:
+            pass
+    if current is target:
+        prod_connection_state.connection = None
+        prod_connection_state.last_checked = 0.0
+
+
+def get_prod_connection():
+    conn = getattr(prod_connection_state, "connection", None)
+    if conn is not None and conn.closed:
+        discard_prod_connection(conn)
+        conn = None
+    now = time.monotonic()
+    last_checked = float(getattr(prod_connection_state, "last_checked", 0.0) or 0.0)
+    if conn is not None and now - last_checked >= PROD_CONNECTION_PING_INTERVAL_SECONDS:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("select 1")
+            conn.rollback()
+        except psycopg.Error:
+            discard_prod_connection(conn)
+            conn = None
+    if conn is None:
+        conn = create_prod_connection()
+        prod_connection_state.connection = conn
+    prod_connection_state.last_checked = now
+    return conn
+
+
+@contextmanager
+def prod_connection():
+    conn = get_prod_connection()
+    try:
         yield conn
+    except Exception:
+        try:
+            conn.rollback()
+        except psycopg.Error:
+            discard_prod_connection(conn)
+        raise
+    else:
+        try:
+            conn.rollback()
+        except psycopg.Error:
+            discard_prod_connection(conn)
+            raise
 
 
 @contextmanager
@@ -897,10 +999,12 @@ def parse_page_args():
     return tab, page, page_size
 
 
-def paged_query(conn, count_sql, rows_sql, params, page, page_size, count_params=()):
-    total = int(query_one(conn, count_sql, count_params).get("total", 0))
+def window_paged_query(conn, rows_sql, params, page, page_size):
     offset = (page - 1) * page_size
     rows = query_list(conn, rows_sql, (*params, page_size, offset))
+    total = int(rows[0].get("total_count", 0)) if rows else 0
+    for row in rows:
+        row.pop("total_count", None)
     return total, rows
 
 
@@ -923,26 +1027,6 @@ def load_stat_table(tab, page, page_size):
 
 
 def load_item_stat_table(conn, page, page_size):
-    count_sql = """
-        with item_names as (
-            select (regexp_match(reason, '^商店购买: (.+) x ([0-9]+)$'))[1] as item_name
-            from t_log_yuanbao
-            where reason ~ '^商店购买: .+ x [0-9]+$'
-            union
-            select case
-                       when content ~ '^成功批量使用【.+】物品[0-9]+次' then regexp_replace(content, '^成功批量使用【(.+)】物品([0-9]+)次.*$', '\\1')
-                       when content ~ '^成功使用【.+】物品' then regexp_replace(content, '^成功使用【(.+)】物品.*$', '\\1')
-                       when content ~ '^批量打开【.+】[0-9]+次获得' then regexp_replace(content, '^批量打开【(.+)】([0-9]+)次获得.*$', '\\1')
-                       when content ~ '^打开【.+】获得' then regexp_replace(content, '^打开【(.+)】获得.*$', '\\1')
-                       else null
-                   end as item_name
-            from t_log_right_bottom
-            where content like '成功使用【%%' or content like '成功批量使用【%%' or content like '打开【%%' or content like '批量打开【%%'
-        )
-        select count(*) as total
-        from item_names
-        where item_name is not null
-    """
     rows_sql = """
         with purchases as (
             select (regexp_match(reason, '^商店购买: (.+) x ([0-9]+)$'))[1] as item_name,
@@ -986,12 +1070,13 @@ def load_item_stat_table(conn, page, page_size):
             from purchase_summary p
             full outer join use_summary u on u.item_name = p.item_name
         )
-        select item_name, purchased_quantity, consumed_quantity, yuanbao_used, purchase_events, use_events
+        select item_name, purchased_quantity, consumed_quantity, yuanbao_used, purchase_events, use_events,
+               count(*) over() as total_count
         from combined
         order by purchased_quantity desc, consumed_quantity desc, yuanbao_used desc, item_name
         limit %s offset %s
     """
-    total, rows = paged_query(conn, count_sql, rows_sql, (), page, page_size)
+    total, rows = window_paged_query(conn, rows_sql, (), page, page_size)
     return {
         "title": "道具统计",
         "description": "按所有日志聚合商品购买数量、消耗数量和元宝使用数量。",
@@ -1009,16 +1094,16 @@ def load_item_stat_table(conn, page, page_size):
 
 
 def load_hospital_value_table(conn, column, label, page, page_size):
-    count_sql = "select count(*) as total from t_hospitals"
     rows_sql = f"""
         select id as hospital_id, coalesce(hospital_name, '') as hospital_name,
                coalesce(director_name, '') as director_name, coalesce({column}, 0) as value,
-               to_char((update_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as update_time
+               to_char((update_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as update_time,
+               count(*) over() as total_count
         from t_hospitals
         order by coalesce({column}, 0) desc, update_time desc, id desc
         limit %s offset %s
     """
-    total, rows = paged_query(conn, count_sql, rows_sql, (ZONE_ID,), page, page_size)
+    total, rows = window_paged_query(conn, rows_sql, (ZONE_ID,), page, page_size)
     return {
         "title": f"{label}排行",
         "description": f"按医院当前{label}从多到少排序。",
@@ -1035,20 +1120,20 @@ def load_hospital_value_table(conn, column, label, page, page_size):
 
 
 def load_guild_table(conn, page, page_size):
-    count_sql = "select count(*) as total from t_guild"
     rows_sql = """
         select g.id as guild_id, coalesce(g.name, '') as guild_name, coalesce(g.status, '') as status,
                coalesce(g.level, 0) as level, coalesce(g.build_points, 0) as build_points,
                coalesce(g.ingot_pool, 0) as ingot_pool, count(m.id) as members,
                coalesce(sum(m.donation_total), 0) as donation_total,
-               to_char((g.create_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as create_time
+               to_char((g.create_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as create_time,
+               count(*) over() as total_count
         from t_guild g
         left join t_guild_member m on m.guild_id = g.id
         group by g.id, g.name, g.status, g.level, g.build_points, g.ingot_pool, g.create_time
         order by coalesce(g.level, 0) desc, coalesce(g.build_points, 0) desc, coalesce(g.ingot_pool, 0) desc, g.id desc
         limit %s offset %s
     """
-    total, rows = paged_query(conn, count_sql, rows_sql, (ZONE_ID,), page, page_size)
+    total, rows = window_paged_query(conn, rows_sql, (ZONE_ID,), page, page_size)
     return {
         "title": "公会统计",
         "description": "按等级、建设值、元宝池从高到低排序。",
@@ -1069,20 +1154,20 @@ def load_guild_table(conn, page, page_size):
 
 
 def load_registrant_table(conn, page, page_size):
-    count_sql = "select count(*) as total from t_directors"
     rows_sql = """
         select d.id as director_id, coalesce(d.username, '') as username, coalesce(d.auth_provider, '') as auth_provider,
                to_char((d.create_time at time zone 'UTC' at time zone %s), 'YYYY-MM-DD HH24:MI') as create_time,
                count(h.id) as hospital_count,
                coalesce(max(h.hospital_name), '') as hospital_name,
-               coalesce(max(h.director_name), '') as director_name
+               coalesce(max(h.director_name), '') as director_name,
+               count(*) over() as total_count
         from t_directors d
         left join t_hospitals h on h.director_id = d.id
         group by d.id, d.username, d.auth_provider, d.create_time
         order by d.create_time desc, d.id desc
         limit %s offset %s
     """
-    total, rows = paged_query(conn, count_sql, rows_sql, (ZONE_ID,), page, page_size)
+    total, rows = window_paged_query(conn, rows_sql, (ZONE_ID,), page, page_size)
     return {
         "title": "注册者",
         "description": "按账号注册时间从新到旧排序。",
@@ -1180,10 +1265,15 @@ def merge_snapshot_history(stats):
     return stats
 
 
-def load_special_clinic_stats_from_prod():
+def load_special_clinic_stats_from_prod(week_start=None):
     with prod_connection() as conn:
         weekly_cabinet = load_special_clinic_weekly_cabinet(conn)
-        weekly_pages = load_special_clinic_weekly_pages(conn, weekly_cabinet)
+        week_options = [
+            special_clinic_week_meta(row, index)
+            for index, row in enumerate(weekly_cabinet[:SPECIAL_CLINIC_WEEK_TAB_LIMIT])
+            if row.get("clinic_date")
+        ]
+        weekly_pages = load_special_clinic_weekly_pages(conn, weekly_cabinet, week_start)
         if weekly_pages:
             latest_page = dict(weekly_pages[0])
             summary = latest_page["summary"]
@@ -1212,7 +1302,7 @@ def load_special_clinic_stats_from_prod():
         return {
             "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
             "zoneId": SPECIAL_CLINIC_ZONE_ID,
-            "weekOptions": [page["week"] for page in weekly_pages],
+            "weekOptions": week_options,
             "weeklyPages": weekly_pages,
             "summary": summary,
             "dailySummary": daily_summary,
@@ -1230,31 +1320,37 @@ def load_special_clinic_stats_from_prod():
         }
 
 
-def load_special_clinic_weekly_pages(conn, weekly_cabinet):
-    pages = []
-    for index, cabinet_row in enumerate(weekly_cabinet[:SPECIAL_CLINIC_WEEK_TAB_LIMIT]):
+def load_special_clinic_weekly_pages(conn, weekly_cabinet, requested_week=None):
+    available = weekly_cabinet[:SPECIAL_CLINIC_WEEK_TAB_LIMIT]
+    selected = None
+    for index, cabinet_row in enumerate(available):
         week_start = cabinet_row.get("clinic_date")
         if not week_start:
             continue
-        summary = load_special_clinic_summary(conn, week_start)
-        apply_special_clinic_week_summary(summary, cabinet_row)
-        pages.append({
-            "week": special_clinic_week_meta(cabinet_row, index),
-            "summary": summary,
-            "dailySummary": load_special_clinic_daily_summary(conn, week_start),
-            "hourlySummary": load_special_clinic_hourly_summary(conn, week_start),
-            "tierDistribution": load_special_clinic_tier_distribution(conn, week_start),
-            "patientDistribution": load_special_clinic_patient_distribution(conn, week_start),
-            "rewardItems": load_special_clinic_reward_items(conn, week_start),
-            "compensationRewards": load_special_clinic_compensation_rewards(conn, week_start),
-            "resourceRewards": load_special_clinic_resource_rewards(conn, week_start),
-            "ticketFlows": load_special_clinic_ticket_flows(conn, week_start),
-            "weeklyCabinet": [cabinet_row],
-            "dailyCabinet": [cabinet_row],
-            "hospitalDaily": load_special_clinic_hospital_daily(conn, week_start),
-            "auditChecks": load_special_clinic_audit_checks(conn, week_start),
-        })
-    return pages
+        if requested_week is None or str(week_start) == requested_week:
+            selected = (index, cabinet_row, str(week_start))
+            break
+    if selected is None:
+        return []
+    index, cabinet_row, week_start = selected
+    summary = load_special_clinic_summary(conn, week_start)
+    apply_special_clinic_week_summary(summary, cabinet_row)
+    return [{
+        "week": special_clinic_week_meta(cabinet_row, index),
+        "summary": summary,
+        "dailySummary": load_special_clinic_daily_summary(conn, week_start),
+        "hourlySummary": load_special_clinic_hourly_summary(conn, week_start),
+        "tierDistribution": load_special_clinic_tier_distribution(conn, week_start),
+        "patientDistribution": load_special_clinic_patient_distribution(conn, week_start),
+        "rewardItems": load_special_clinic_reward_items(conn, week_start),
+        "compensationRewards": load_special_clinic_compensation_rewards(conn, week_start),
+        "resourceRewards": load_special_clinic_resource_rewards(conn, week_start),
+        "ticketFlows": load_special_clinic_ticket_flows(conn, week_start),
+        "weeklyCabinet": [cabinet_row],
+        "dailyCabinet": [cabinet_row],
+        "hospitalDaily": load_special_clinic_hospital_daily(conn, week_start),
+        "auditChecks": load_special_clinic_audit_checks(conn, week_start),
+    }]
 
 
 def load_special_clinic_summary(conn, week_start=None):
@@ -2141,74 +2237,7 @@ def load_broker_stats_from_prod():
             (ZONE_ID,),
         )
         add_broker_rates(summary)
-        stage_comparison = query_list(
-            conn,
-            """
-            with cutoff as (
-                select coalesce(max(update_time), now() at time zone 'UTC') as cutoff_at
-                from t_broker_wallet_rule
-                where enabled = true
-            ),
-            ordinary_success as (
-                select r.create_time,
-                       coalesce(nullif(substring(r.content from '拉走了([0-9]+)位病人'), ''), '0')::int as patients
-                from t_log_right_bottom r, cutoff c
-                where r.create_time >= now() - interval '14 days'
-                  and r.create_time >= c.cutoff_at
-                  and r.content like '【%%】派遣医托从您的医院拉走了%%位病人%%'
-            ),
-            retaliation_click as (
-                select r.create_time
-                from t_log_right_bottom r, cutoff c
-                where r.create_time >= now() - interval '14 days'
-                  and r.create_time >= c.cutoff_at
-                  and r.content like '您按名片找到了对方医托，准备反拉一次。%%'
-            ),
-            retaliation_success as (
-                select r.create_time,
-                       coalesce(nullif(substring(r.content from '反拉走了([0-9]+)位病人'), ''), '0')::int as patients
-                from t_log_right_bottom r, cutoff c
-                where r.create_time >= now() - interval '14 days'
-                  and r.create_time >= c.cutoff_at
-                  and r.content like '【%%】顺着医托名片找了回来，从您的医院反拉走了%%位病人%%'
-            ),
-            retaliation_used as (
-                select used_at as create_time
-                from t_broker_retaliation_voucher, cutoff c
-                where used_at is not null
-                  and used_at >= now() - interval '14 days'
-                  and used_at >= c.cutoff_at
-            ),
-            wallet_enriched as (
-                select w.*,
-                       exists(
-                           select 1
-                           from jsonb_each_text(coalesce(w.item_rewards, '{}'::jsonb)) item
-                           where item.value::int > 0
-                       ) as has_item_drop
-                from t_broker_wallet_drop w, cutoff c
-                where w.create_time >= now() - interval '14 days'
-                  and w.create_time >= c.cutoff_at
-            ),
-            stages(stage_label, sort_order, start_at, end_at) as (
-                select '钱包上线后', 1, cutoff_at, now() at time zone 'UTC' from cutoff
-            )
-            select stage_label,
-                   (select count(*) from ordinary_success o where o.create_time >= s.start_at and o.create_time < s.end_at) as ordinary_success_count,
-                   (select coalesce(sum(patients), 0) from ordinary_success o where o.create_time >= s.start_at and o.create_time < s.end_at) as ordinary_patient_count,
-                   (select count(*) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at) as wallet_count,
-                   (select count(*) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at and w.opened_at is not null) as wallet_opened,
-                   (select coalesce(sum(money_reward), 0) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at) as wallet_money,
-                   (select count(*) from wallet_enriched w where w.create_time >= s.start_at and w.create_time < s.end_at and w.has_item_drop) as item_drop_wallets,
-                   (select count(*) from retaliation_click r where r.create_time >= s.start_at and r.create_time < s.end_at) as retaliation_click_count,
-                   (select count(*) from retaliation_used r where r.create_time >= s.start_at and r.create_time < s.end_at) as retaliation_success_count,
-                   (select coalesce(sum(patients), 0) from retaliation_success r where r.create_time >= s.start_at and r.create_time < s.end_at) as retaliation_patient_count
-            from stages s
-            order by sort_order
-            """,
-        )
-        for row in stage_comparison:
-            add_broker_rates(row)
+        stage_comparison = [{**summary, "stage_label": "钱包上线后"}]
         relation_band = query_list(
             conn,
             """
@@ -2817,16 +2846,51 @@ def favicon():
 @app.get("/api/stats")
 def stats_api():
     try:
+        if use_stats_api():
+            return jsonify(fetch_stats_api("/api/stats"))
         return jsonify(load_stats())
     except Exception as exc:
         app.logger.warning("stats unavailable: %s", exc)
         return jsonify(load_unavailable_stats(exc))
 
 
+@app.get("/api/source-health")
+def source_health_api():
+    if use_stats_api():
+        try:
+            return jsonify(fetch_stats_api("/api/source-health"))
+        except Exception as exc:
+            return jsonify({"status": "unavailable", "error": str(exc)}), 503
+    try:
+        with prod_connection() as conn:
+            source = query_one(
+                conn,
+                """
+                select pg_is_in_recovery() as in_recovery,
+                       case when pg_is_in_recovery()
+                            then round(extract(epoch from (now() - pg_last_xact_replay_timestamp()))::numeric, 3)
+                            else 0
+                       end as replay_delay_seconds
+                """,
+            )
+        return jsonify({"status": "ok", **source})
+    except Exception as exc:
+        return jsonify({"status": "unavailable", "error": str(exc)}), 503
+
+
 @app.get("/api/special-clinic-stats")
 def special_clinic_stats_api():
+    week_start = request.args.get("week", "").strip() or None
+    if week_start:
+        try:
+            datetime.strptime(week_start, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "week must use YYYY-MM-DD"}), 400
     try:
-        return jsonify(load_special_clinic_stats_from_prod())
+        if use_stats_api():
+            params = {"week": week_start} if week_start else None
+            return jsonify(fetch_stats_api("/api/special-clinic-stats", params))
+        return jsonify(load_special_clinic_stats_from_prod(week_start))
     except Exception as exc:
         app.logger.warning("special clinic stats unavailable: %s", exc)
         return jsonify(load_unavailable_special_clinic_stats(exc))
@@ -2835,6 +2899,8 @@ def special_clinic_stats_api():
 @app.get("/api/broker-stats")
 def broker_stats_api():
     try:
+        if use_stats_api():
+            return jsonify(fetch_stats_api("/api/broker-stats"))
         return jsonify(load_broker_stats_from_prod())
     except Exception as exc:
         app.logger.warning("broker stats unavailable: %s", exc)
@@ -2844,6 +2910,8 @@ def broker_stats_api():
 @app.get("/api/toilet-market-stats")
 def toilet_market_stats_api():
     try:
+        if use_stats_api():
+            return jsonify(fetch_stats_api("/api/toilet-market-stats"))
         return jsonify(load_toilet_market_stats_from_prod())
     except Exception as exc:
         app.logger.warning("toilet market stats unavailable: %s", exc)
@@ -2853,6 +2921,15 @@ def toilet_market_stats_api():
 @app.get("/api/stat-table")
 def stat_table_api():
     tab, page, page_size = parse_page_args()
+    if use_stats_api():
+        try:
+            return jsonify(fetch_stats_api("/api/stat-table", {
+                "tab": tab,
+                "page": page,
+                "pageSize": page_size,
+            }))
+        except Exception as exc:
+            return jsonify({"error": f"statistics API unavailable: {exc}"}), 503
     return jsonify(load_stat_table(tab, page, page_size))
 
 
@@ -2862,6 +2939,14 @@ def item_activity_details():
     activity_type = request.args.get("type", "").strip().lower()
     if not item_name:
         return jsonify([])
+    if use_stats_api():
+        try:
+            return jsonify(fetch_stats_api("/api/item-activity-details", {
+                "type": activity_type,
+                "itemName": item_name,
+            }))
+        except Exception as exc:
+            return jsonify({"error": f"statistics API unavailable: {exc}"}), 503
     with prod_connection() as conn:
         if activity_type == "purchase":
             rows = query_list(

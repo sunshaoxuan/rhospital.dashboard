@@ -1,6 +1,6 @@
-# 荣光医院本地运营统计看板
+# 荣光医院运营统计看板
 
-这是独立于游戏工程的本机看板。它只读连接数据库，统计数据快照保存在本地 `data/ops_dashboard.sqlite3`。
+这是独立于游戏工程的运营看板。统计 API 部署在流式备份节点，只读访问本机 PostgreSQL 副本；ccnode 只提供 SSO、页面和 API 转发。统计快照保存在统计 API 节点的 `data/ops_dashboard.sqlite3`。
 
 ## Windows 安装或升级
 
@@ -48,10 +48,11 @@ docker compose down
 
 ## 数据边界
 
-- 生产数据库只执行 `SELECT`。
+- 统计 SQL 只在 `160.16.91.200` 流式备份节点执行，并连接本机只读 PostgreSQL 副本。
+- ccnode 通过带 Bearer 令牌的服务端 API 获取统计结果，不再直接连接生产数据库。
 - 默认启用 Firebase SSO，复用游戏现有 Firebase 项目登录，只有 `OPS_DASHBOARD_ALLOWED_EMAILS` 中的账号可以访问页面和统计 API；`/healthz` 保持开放给部署健康检查使用。
 - 每次数据库连接都会设置 `default_transaction_read_only=on`。
-- 页面每 60 秒轮询一次，数据未变化时不重绘。
+- 页面每 60 秒刷新当前页签；四个主页签首次进入时独立并发加载，每个页签显示自己的旋转状态，已完成页签可以立即查看。
 - 看板页面使用自适应版面，手机宽度下卡片、图表、页签和明细弹窗自动收缩，宽表格支持横向滑动查看。
 - 看板默认使用浅灰页面底、白色内容面、橙色主强调和青绿色辅助色的亮色主题，并提供亮暗主题切换；用户选择保存在浏览器 `localStorage` 的 `ops-dashboard-theme` 中，图表坐标、图例和提示框会同步更新。
 - 每 10 分钟保存一次本地每日快照。
@@ -60,7 +61,7 @@ docker compose down
 - 顶部今日收入拆分为 Stripe 和 Steam 两张卡片，分别展示 CNY 金额、订单数和元宝。
 - 图表区包含近14日元宝消耗按小时统计、滚动最近10周元宝消耗总量，以及滚动最近10周元宝购入量；消耗口径为 `t_log_yuanbao` 中 `old_value > new_value` 的减少量，购入口径为已完成支付订单的 `yuanbao_amount`，周统计按周一至周日聚合。
 - 图表下方提供道具、金钱、元宝、声望、公会、注册者统计页签，每页支持 20、50、100 条分页。
-- 页面刷新按钮在请求进行中显示旋转状态和“刷新中”，并临时禁用重复点击。
+- 页面刷新按钮显示当前页签状态；后台加载中的其他页签在页签按钮上独立显示旋转状态。
 - 道具页签按全量日志聚合商品购买数量、消耗数量和元宝使用数量；金钱、元宝、声望、公会按当前值从高到低排序；注册者按注册时间从新到旧排序。
 - 页面顶部提供站点级页签：`运营总览` 保持原有统计画面，`特需门诊` 展示常见病特需门诊只读分析，`医托拉人` 展示医托钱包改档后的普通拉人、钱包和名片反拉数据，`跳蚤市场` 展示洗手间交易池的库存、流转和参与医院统计。
 - 医托拉人页签按钱包规则上线后展示普通拉人次数、成功拉走病人数、钱包打开率、生成金币总量、平均每钱包金币、道具掉落率、名片反拉点击和反拉成功；普通拉人使用目标医院日志，钱包指标只归因普通成功拉人，反拉使用名片点击日志和反拉成功日志。
@@ -70,7 +71,7 @@ docker compose down
 - 最快消耗中，成交耗时使用挂单 `create_time` 到首笔 `PURCHASE` 交易 `create_time` 的秒差，大街捡取耗时使用入街记录 `create_time` 到成功 `STREET_PICKUP` 交易 `create_time` 的秒差；开始和完成时间显示到秒，避免同一分钟内完成时看起来时间完全相同。
 - 跳蚤市场成功捡取只统计 `t_toilet_market_transaction` 中 `transaction_type='STREET_PICKUP'` 且 `street_item_id` 非空的记录，排除每日翻找但没有捡到内容的失败尝试；玩家卖家数排除 `listing_source='ADMIN'` 的系统注入挂单，系统注入挂单和数量保留在池子提示中。
 - 跳蚤市场统计只读查询 `t_toilet_market_listing`、`t_toilet_market_transaction`、`t_toilet_street_item` 和 `t_hospitals`。
-- 特需门诊页按北京时间和周三开诊周期展示子页签，最新周排在最前，新一周出现后自动把上一周向后顺延；每个周期页签包含周期每日诊断、每小时总览、病历等级分布、具体病历分布、道具奖品发放、后台补偿奖品、资源奖品发放、每周库存消耗、医院行为 Top 30、对账异常和风险提示次数。
+- 特需门诊页按北京时间和周三开诊周期展示子页签，最新周排在最前，新一周出现后自动把上一周向后顺延；接口只计算当前选中的一周，其他周在点击后独立加载并缓存。每个周期页签包含周期每日诊断、每小时总览、病历等级分布、具体病历分布、道具奖品发放、后台补偿奖品、资源奖品发放、每周库存消耗、医院行为 Top 30、对账异常和风险提示次数。
 - 周期每日诊断按选中周三周期生成 7 天序列，并按 `create_time` 的北京时间日期统计实际发生日；日确诊和累计确诊使用左轴，付费确诊使用右轴；每日表同时列出票消耗、购票和元宝成本。
 - 特需门诊道具奖品来自 `reward_items` 道具 JSON 和后台补偿物品批次，并单独展示 Top 图和明细表；名称映射包含病志残页 `1351` 和特需门诊票 `1792`；主账资源来自确诊记录字段，声望读取 `prestige_reward`，资源图中金钱使用独立右轴，避免百万级金钱压住其他资源。
 - 后台补偿批次统计只归入奖品口径；例如 `item_id=1792` 的特需门诊票补偿会显示在道具奖品和后台补偿奖品表，并保留批次原因。门诊票流水仅统计 `t_special_clinic_ticket_log`。
@@ -102,16 +103,16 @@ https://ccnode.briconbric.com/rhdashboard/
 
 ### 首次远端准备
 
-远端 `/rhdashboard/.env` 必须保留在 ccnode 服务器本地，不随代码发布。站点运行在 ccnode，统计数据源指向当前游戏服务器 `178.239.117.99`。至少需要配置真实值：
+远端 `/rhdashboard/.env` 必须保留在 ccnode 服务器本地，不随代码发布。站点运行在 ccnode，统计数据通过备份节点 API 获取。至少需要配置真实值：
 
 ```env
 DASHBOARD_PUBLIC_IP=127.0.0.1
 DASHBOARD_PUBLIC_PORT=18091
-PROD_DB_URL=postgresql://178.239.117.99:35432/hospital
-PROD_DB_USERNAME=<READ_ONLY_USER>
-PROD_DB_PASSWORD=<READ_ONLY_PASSWORD>
 OPS_DASHBOARD_TIME_ZONE=Asia/Tokyo
 OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS=10
+OPS_DASHBOARD_STATS_API_URL=http://160.16.91.200:18092
+OPS_DASHBOARD_STATS_API_TOKEN=<SHARED_RANDOM_TOKEN>
+OPS_DASHBOARD_STATS_API_TIMEOUT_SECONDS=30
 OPS_DASHBOARD_URL_PREFIX=/rhdashboard
 OPS_DASHBOARD_AUTH_MODE=firebase
 OPS_DASHBOARD_ALLOWED_EMAILS=sunshaoxuan@gmail.com
@@ -130,14 +131,32 @@ sh scripts/configure-ccnode-nginx-rhdashboard.sh
 
 该脚本会写入 ccnode 的 nginx 配置，再执行 `nginx -t` 和 reload。
 
-ccnode 的 mailcow 防火墙链会拦截来自生产数据库 `178.239.117.99:35432` 的容器返回流量。首次准备或规则缺失时安装定时校验：
+### 统计 API 节点
 
-```bash
-cd /rhdashboard
-sh scripts/configure-ccnode-db-firewall.sh
+统计服务固定部署在 `160.16.91.200:/home/ubuntu/rhospital-statistics`，容器使用 host network 访问 `127.0.0.1:5432` 的流式只读副本。节点 `.env` 至少配置：
+
+```env
+PROD_DB_URL=postgresql://127.0.0.1:5432/hospital
+PROD_DB_USERNAME=<READ_ONLY_USER>
+PROD_DB_PASSWORD=<READ_ONLY_PASSWORD>
+OPS_DASHBOARD_SERVICE_MODE=statistics_api
+OPS_DASHBOARD_STATS_API_TOKEN=<SHARED_RANDOM_TOKEN>
+OPS_DASHBOARD_TIME_ZONE=Asia/Tokyo
+OPS_DASHBOARD_QUERY_TIMEOUT_SECONDS=10
 ```
 
-该脚本只允许生产数据库端口返回到 dashboard 所在的 `172.18.0.0/16` Docker 网段，并每 30 秒检查一次规则；日常发布也会在容器更新后立即执行同一规则脚本。
+同一个令牌写入 ccnode 和统计节点。统计节点 API 端口 `18092` 只允许 ccnode 公网 IP 和本机访问：
+
+```bash
+sudo sh scripts/configure-statistics-api-firewall.sh 203.24.89.50 18092
+```
+
+本地提交完成后先发布统计节点，再发布 ccnode：
+
+```powershell
+.\scripts\deploy-statistics-node.ps1
+.\scripts\deploy-ccnode.ps1
+```
 
 ### 日常发布
 
@@ -156,9 +175,8 @@ sh scripts/configure-ccnode-db-firewall.sh
 5. 推送当前 git 分支到 `origin`。
 6. 上传镜像包、`docker-compose.yml` 和远端更新脚本到 `/rhdashboard/releases/<tag>/`。
 7. 远端 `docker load` 镜像并用 `docker compose up -d --no-build` 更新容器。
-8. 补回 dashboard 到生产数据库的窄范围防火墙放行规则。
-9. 检查 `http://127.0.0.1:18091/healthz`。
-10. 清理不再使用的旧镜像。
+8. 检查 `http://127.0.0.1:18091/healthz`。
+9. 清理不再使用的旧镜像。
 
 如只想演练上传和远端更新，不推送 git：
 
