@@ -38,6 +38,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/api/stats", rules)
         self.assertIn("/api/special-clinic-stats", rules)
         self.assertIn("/api/broker-stats", rules)
+        self.assertIn("/api/toilet-market-stats", rules)
         self.assertIn("/api/stat-table", rules)
         self.assertIn("/api/item-activity-details", rules)
 
@@ -49,8 +50,10 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('data-page-tab="overall"', html)
         self.assertIn('data-page-tab="specialClinic"', html)
         self.assertIn('data-page-tab="broker"', html)
+        self.assertIn('data-page-tab="toiletMarket"', html)
         self.assertIn('id="specialClinicPage"', html)
         self.assertIn('id="brokerPage"', html)
+        self.assertIn('id="toiletMarketPage"', html)
         self.assertIn('id="clinicWeekTabs"', html)
         self.assertIn("data-clinic-week", html)
         self.assertIn('id="clinicDailyChart"', html)
@@ -109,6 +112,40 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("patient_band", source)
         self.assertNotIn("BROKER_RULE_BASELINE", source)
         self.assertNotIn("pre_ordinary_success_count", source)
+
+    def test_dashboard_has_toilet_market_stats_page(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn("跳蚤市场", html)
+        self.assertIn("api/toilet-market-stats", html)
+        self.assertIn("renderToiletMarketStats", html)
+        self.assertIn("当前可售挂单", html)
+        self.assertIn("近14日成交", html)
+        self.assertIn("滞销挂单", html)
+        self.assertIn("商品热度 Top 30", html)
+        self.assertIn("最快消耗 Top 20", html)
+        self.assertIn("卖家成交 Top 20", html)
+        self.assertIn("买家购买 Top 20", html)
+        self.assertIn('id="toiletDailyChart"', html)
+        self.assertIn('id="toiletAgingChart"', html)
+
+    def test_toilet_market_stats_use_successful_pickups_and_player_sellers(self):
+        source = Path("app/app.py").read_text(encoding="utf-8")
+
+        self.assertIn("load_toilet_market_stats_from_prod", source)
+        self.assertIn("t_toilet_market_listing", source)
+        self.assertIn("t_toilet_market_transaction", source)
+        self.assertIn("t_toilet_street_item", source)
+        self.assertIn("transaction_type = 'PURCHASE'", source)
+        self.assertIn("transaction_type = 'STREET_PICKUP'", source)
+        self.assertIn("street_item_id is not null", source)
+        self.assertIn("listing_source = 'PLAYER'", source)
+        self.assertIn("listing_source = 'ADMIN'", source)
+        self.assertIn("TOILET_MARKET_STALE_HOURS = 48", source)
+        self.assertIn("fastestConsumed", source)
+        self.assertIn("pickup_quantity", source)
 
     def test_overall_stats_include_weekly_yuanbao_spending(self):
         source = Path("app/app.py").read_text(encoding="utf-8")

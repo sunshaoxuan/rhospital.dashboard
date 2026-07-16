@@ -51,6 +51,7 @@ AUTH_ALLOWED_EMAILS = {
     if email.strip()
 }
 AUTH_PUBLIC_ENDPOINTS = {"healthz", "favicon", "login", "firebase_login"}
+TOILET_MARKET_STALE_HOURS = 48
 FIREBASE_PROJECT_ID = os.getenv("OPS_DASHBOARD_FIREBASE_PROJECT_ID", "r-hospital-c8069").strip()
 FIREBASE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
 FIREBASE_WEB_CONFIG = {
@@ -2242,7 +2243,7 @@ def load_broker_stats_from_prod():
             add_broker_rates(row)
         daily_trend = query_list(
             conn,
-            """
+            f"""
             with cutoff as (
                 select coalesce(max(update_time), now() at time zone 'UTC') as cutoff_at
                 from t_broker_wallet_rule
@@ -2332,6 +2333,376 @@ def load_broker_stats_from_prod():
         "relationBand": relation_band,
         "dailyTrend": daily_trend,
         "currentRules": current_rules,
+    }
+
+
+def load_toilet_market_stats_from_prod():
+    stale_interval = f"{TOILET_MARKET_STALE_HOURS} hours"
+    with prod_connection() as conn:
+        has_listing_source = column_exists(conn, "t_toilet_market_listing", "listing_source")
+        player_listing_filter = "listing_source = 'PLAYER'" if has_listing_source else "true"
+        admin_listing_filter = "listing_source = 'ADMIN'" if has_listing_source else "false"
+        player_join_filter = "l.listing_source = 'PLAYER'" if has_listing_source else "true"
+        summary = query_one(
+            conn,
+            f"""
+            with active_listings as (
+                select *
+                from t_toilet_market_listing
+                where status = 'ACTIVE'
+            ), purchase_tx as (
+                select *
+                from t_toilet_market_transaction
+                where transaction_type = 'PURCHASE'
+                  and create_time >= now() - interval '14 days'
+            ), street_pickup_tx as (
+                select *
+                from t_toilet_market_transaction
+                where transaction_type = 'STREET_PICKUP'
+                  and street_item_id is not null
+                  and create_time >= now() - interval '14 days'
+            ), sold_latency as (
+                select extract(epoch from (min(t.create_time) - l.create_time)) / 60.0 as sale_minutes
+                from t_toilet_market_listing l
+                join t_toilet_market_transaction t on t.listing_id = l.id and t.transaction_type = 'PURCHASE'
+                where t.create_time >= now() - interval '14 days'
+                group by l.id, l.create_time
+            )
+            select
+                (select count(*) from active_listings) as active_listing_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from active_listings) as active_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from active_listings where content_type = 'ITEM') as active_item_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from active_listings where content_type = 'MONEY') as active_money_quantity,
+                (select count(distinct seller_hospital_id) from active_listings where {player_listing_filter}) as active_seller_count,
+                (select count(*) from active_listings where {admin_listing_filter}) as admin_active_listing_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from active_listings where {admin_listing_filter}) as admin_active_quantity,
+                (select count(*) from active_listings where create_time < now() - %s::interval) as stale_listing_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from active_listings where create_time < now() - %s::interval) as stale_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from active_listings where content_type = 'ITEM' and create_time < now() - %s::interval) as stale_item_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from active_listings where content_type = 'MONEY' and create_time < now() - %s::interval) as stale_money_quantity,
+                (select count(*) from purchase_tx) as purchase_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from purchase_tx) as purchased_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from purchase_tx where content_type = 'ITEM') as purchased_item_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from purchase_tx where content_type = 'MONEY') as purchased_money_quantity,
+                (select count(distinct actor_hospital_id) from purchase_tx) as buyer_count,
+                (select count(distinct seller_hospital_id)
+                 from t_toilet_market_listing l
+                 join purchase_tx t on t.listing_id = l.id
+                 where {player_join_filter}) as seller_count,
+                (select count(*) from street_pickup_tx) as street_pickup_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from street_pickup_tx) as street_pickup_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from street_pickup_tx where content_type = 'ITEM') as street_pickup_item_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from street_pickup_tx where content_type = 'MONEY') as street_pickup_money_quantity,
+                (select count(*) from t_toilet_street_item where status = 'AVAILABLE') as street_available_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item where status = 'AVAILABLE') as street_available_quantity,
+                (select round(avg(sale_minutes)::numeric, 2) from sold_latency) as avg_sale_minutes,
+                (select round(percentile_cont(0.5) within group (order by sale_minutes)::numeric, 2) from sold_latency) as median_sale_minutes
+            """,
+            (stale_interval, stale_interval, stale_interval, stale_interval),
+        )
+        summary["stale_rate"] = percent(summary.get("stale_listing_count", 0), summary.get("active_listing_count", 0))
+        summary["pickup_to_purchase_rate"] = percent(summary.get("street_pickup_count", 0), summary.get("purchase_count", 0))
+
+        daily_trend = query_list(
+            conn,
+            f"""
+            with days as (
+                select generate_series(
+                    (now() at time zone %s)::date - 13,
+                    (now() at time zone %s)::date,
+                    interval '1 day'
+                )::date as day
+            ), listing_create as (
+                select (create_time at time zone 'UTC' at time zone %s)::date as day,
+                       count(*) as listing_count,
+                       coalesce(sum(coalesce(quantity, 1)), 0) as listing_quantity,
+                       count(distinct seller_hospital_id) filter (where {player_listing_filter}) as seller_count
+                from t_toilet_market_listing
+                where create_time >= now() - interval '14 days'
+                group by 1
+            ), purchase_tx as (
+                select (t.create_time at time zone 'UTC' at time zone %s)::date as day,
+                       count(*) as purchase_count,
+                       coalesce(sum(coalesce(t.quantity, 1)), 0) as purchased_quantity,
+                       count(distinct t.actor_hospital_id) as buyer_count,
+                       count(distinct l.seller_hospital_id) filter (where {player_join_filter}) as seller_count
+                from t_toilet_market_transaction t
+                left join t_toilet_market_listing l on l.id = t.listing_id
+                where t.transaction_type = 'PURCHASE'
+                  and t.create_time >= now() - interval '14 days'
+                group by 1
+            ), street_pickup as (
+                select (create_time at time zone 'UTC' at time zone %s)::date as day,
+                       count(*) as pickup_count,
+                       coalesce(sum(coalesce(quantity, 1)), 0) as pickup_quantity
+                from t_toilet_market_transaction
+                where transaction_type = 'STREET_PICKUP'
+                  and street_item_id is not null
+                  and create_time >= now() - interval '14 days'
+                group by 1
+            )
+            select d.day::text as day,
+                   coalesce(l.listing_count, 0) as listing_count,
+                   coalesce(l.listing_quantity, 0) as listing_quantity,
+                   coalesce(l.seller_count, 0) as listing_seller_count,
+                   coalesce(p.purchase_count, 0) as purchase_count,
+                   coalesce(p.purchased_quantity, 0) as purchased_quantity,
+                   coalesce(p.buyer_count, 0) as buyer_count,
+                   coalesce(p.seller_count, 0) as seller_count,
+                   coalesce(s.pickup_count, 0) as pickup_count,
+                   coalesce(s.pickup_quantity, 0) as pickup_quantity
+            from days d
+            left join listing_create l on l.day = d.day
+            left join purchase_tx p on p.day = d.day
+            left join street_pickup s on s.day = d.day
+            order by d.day
+            """,
+            (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
+        )
+        item_summary = query_list(
+            conn,
+            f"""
+            with listing_summary as (
+                select coalesce(item_id, 0) as item_id,
+                       coalesce(item_name, '金钱') as item_name,
+                       coalesce(content_type::text, 'ITEM') as content_type,
+                       count(*) filter (where status = 'ACTIVE') as active_listing_count,
+                       coalesce(sum(coalesce(quantity, 1)) filter (where status = 'ACTIVE'), 0) as active_quantity,
+                       count(distinct seller_hospital_id) filter (where status = 'ACTIVE' and {player_listing_filter}) as active_seller_count,
+                       count(*) filter (where status = 'ACTIVE' and create_time < now() - %s::interval) as stale_listing_count,
+                       coalesce(sum(coalesce(quantity, 1)) filter (where status = 'ACTIVE' and create_time < now() - %s::interval), 0) as stale_quantity
+                from t_toilet_market_listing
+                group by coalesce(item_id, 0), coalesce(item_name, '金钱'), coalesce(content_type::text, 'ITEM')
+            ), purchase_summary as (
+                select coalesce(t.item_id, l.item_id, 0) as item_id,
+                       coalesce(l.item_name, case when t.content_type = 'MONEY' then '金钱' else concat('道具 ', t.item_id) end) as item_name,
+                       coalesce(t.content_type, l.content_type::text, 'ITEM') as content_type,
+                       count(*) as purchase_count,
+                       coalesce(sum(coalesce(t.quantity, 1)), 0) as purchased_quantity,
+                       count(distinct t.actor_hospital_id) as buyer_count,
+                       count(distinct l.seller_hospital_id) filter (where {player_join_filter}) as seller_count,
+                       coalesce(sum(coalesce(t.price, 0)) filter (where t.currency_type = 'MONEY'), 0) as money_amount,
+                       coalesce(sum(coalesce(t.price, 0)) filter (where t.currency_type = 'INGOT'), 0) as ingot_amount
+                from t_toilet_market_transaction t
+                left join t_toilet_market_listing l on l.id = t.listing_id
+                where t.transaction_type = 'PURCHASE'
+                  and t.create_time >= now() - interval '14 days'
+                group by coalesce(t.item_id, l.item_id, 0),
+                         coalesce(l.item_name, case when t.content_type = 'MONEY' then '金钱' else concat('道具 ', t.item_id) end),
+                         coalesce(t.content_type, l.content_type::text, 'ITEM')
+            ), street_summary as (
+                select coalesce(t.item_id, s.item_id, 0) as item_id,
+                       coalesce(s.item_name, case when t.content_type = 'MONEY' then '金钱' else concat('道具 ', t.item_id) end) as item_name,
+                       coalesce(t.content_type, s.content_type::text, 'ITEM') as content_type,
+                       count(*) as pickup_count,
+                       coalesce(sum(coalesce(t.quantity, 1)), 0) as pickup_quantity,
+                       count(distinct t.actor_hospital_id) as picker_count
+                from t_toilet_market_transaction t
+                left join t_toilet_street_item s on s.id = t.street_item_id
+                where t.transaction_type = 'STREET_PICKUP'
+                  and t.street_item_id is not null
+                  and t.create_time >= now() - interval '14 days'
+                group by coalesce(t.item_id, s.item_id, 0),
+                         coalesce(s.item_name, case when t.content_type = 'MONEY' then '金钱' else concat('道具 ', t.item_id) end),
+                         coalesce(t.content_type, s.content_type::text, 'ITEM')
+            ), combined as (
+                select coalesce(l.item_id, p.item_id) as item_id,
+                       coalesce(l.item_name, p.item_name) as item_name,
+                       coalesce(l.content_type, p.content_type) as content_type,
+                       l.active_listing_count, l.active_quantity, l.active_seller_count,
+                       l.stale_listing_count, l.stale_quantity,
+                       p.purchase_count, p.purchased_quantity, p.buyer_count, p.seller_count,
+                       p.money_amount, p.ingot_amount
+                from listing_summary l
+                full outer join purchase_summary p on p.item_id = l.item_id and p.item_name = l.item_name and p.content_type = l.content_type
+            )
+            select coalesce(c.item_id, s.item_id) as item_id,
+                   coalesce(c.item_name, s.item_name) as item_name,
+                   coalesce(c.content_type, s.content_type) as content_type,
+                   coalesce(c.active_listing_count, 0) as active_listing_count,
+                   coalesce(c.active_quantity, 0) as active_quantity,
+                   coalesce(c.active_seller_count, 0) as active_seller_count,
+                   coalesce(c.stale_listing_count, 0) as stale_listing_count,
+                   coalesce(c.stale_quantity, 0) as stale_quantity,
+                   coalesce(c.purchase_count, 0) as purchase_count,
+                   coalesce(c.purchased_quantity, 0) as purchased_quantity,
+                   coalesce(c.buyer_count, 0) as buyer_count,
+                   coalesce(c.seller_count, 0) as seller_count,
+                   coalesce(c.money_amount, 0) as money_amount,
+                   coalesce(c.ingot_amount, 0) as ingot_amount,
+                   coalesce(s.pickup_count, 0) as pickup_count,
+                   coalesce(s.pickup_quantity, 0) as pickup_quantity,
+                   coalesce(s.picker_count, 0) as picker_count
+            from combined c
+            full outer join street_summary s on s.item_id = c.item_id and s.item_name = c.item_name and s.content_type = c.content_type
+            order by (coalesce(purchased_quantity, 0) + coalesce(pickup_quantity, 0)) desc,
+                     active_quantity desc, purchase_count desc, item_name
+            limit 30
+            """,
+            (stale_interval, stale_interval),
+        )
+        fastest_consumed = query_list(
+            conn,
+            """
+            with first_purchase as (
+                select l.id as listing_id,
+                       min(t.create_time) as sold_at
+                from t_toilet_market_listing l
+                join t_toilet_market_transaction t on t.listing_id = l.id and t.transaction_type = 'PURCHASE'
+                where t.create_time >= now() - interval '14 days'
+                group by l.id
+            ), purchase_speed as (
+                select l.id as source_id,
+                       '成交' as consume_type,
+                       coalesce(l.item_name, '金钱') as item_name,
+                       coalesce(l.quantity, 1) as quantity,
+                       coalesce(l.currency_type::text, '') as currency_type,
+                       coalesce(l.price, 0) as price,
+                       l.seller_hospital_id as source_hospital_id,
+                       l.buyer_hospital_id as target_hospital_id,
+                       extract(epoch from (f.sold_at - l.create_time)) / 60.0 as consume_minutes,
+                       l.create_time as started_at,
+                       f.sold_at as consumed_at
+                from first_purchase f
+                join t_toilet_market_listing l on l.id = f.listing_id
+            ), street_speed as (
+                select s.id as source_id,
+                       '大街捡取' as consume_type,
+                       coalesce(s.item_name, '金钱') as item_name,
+                       coalesce(s.quantity, 1) as quantity,
+                       '' as currency_type,
+                       0::bigint as price,
+                       s.source_hospital_id,
+                       t.actor_hospital_id as target_hospital_id,
+                       extract(epoch from (t.create_time - s.create_time)) / 60.0 as consume_minutes,
+                       s.create_time as started_at,
+                       t.create_time as consumed_at
+                from t_toilet_street_item s
+                join t_toilet_market_transaction t on t.street_item_id = s.id and t.transaction_type = 'STREET_PICKUP'
+                where t.create_time >= now() - interval '14 days'
+            ), consumed as (
+                select * from purchase_speed
+                union all
+                select * from street_speed
+            )
+            select source_id,
+                   consume_type,
+                   item_name,
+                   quantity,
+                   currency_type,
+                   price,
+                   source_hospital_id,
+                   target_hospital_id,
+                   round(greatest(consume_minutes, 0)::numeric, 2) as consume_minutes,
+                   to_char(started_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI') as started_at,
+                   to_char(consumed_at at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI') as consumed_at
+            from consumed
+            order by consume_minutes asc, consumed_at desc
+            limit 20
+            """,
+            (ZONE_ID, ZONE_ID),
+        )
+        seller_leaderboard = query_list(
+            conn,
+            f"""
+            select l.seller_hospital_id as hospital_id,
+                   coalesce(max(h.hospital_name), '') as hospital_name,
+                   coalesce(max(h.director_name), '') as director_name,
+                   count(*) as purchase_count,
+                   coalesce(sum(coalesce(t.quantity, 1)), 0) as sold_quantity,
+                   coalesce(sum(coalesce(t.price, 0)) filter (where t.currency_type = 'MONEY'), 0) as money_amount,
+                   coalesce(sum(coalesce(t.price, 0)) filter (where t.currency_type = 'INGOT'), 0) as ingot_amount
+            from t_toilet_market_transaction t
+            join t_toilet_market_listing l on l.id = t.listing_id
+            left join t_hospitals h on h.id = l.seller_hospital_id
+            where t.transaction_type = 'PURCHASE'
+              and t.create_time >= now() - interval '14 days'
+              and {player_join_filter}
+            group by l.seller_hospital_id
+            order by sold_quantity desc, purchase_count desc, ingot_amount desc, money_amount desc
+            limit 20
+            """
+        )
+        buyer_leaderboard = query_list(
+            conn,
+            """
+            select t.actor_hospital_id as hospital_id,
+                   coalesce(max(h.hospital_name), '') as hospital_name,
+                   coalesce(max(h.director_name), '') as director_name,
+                   count(*) as purchase_count,
+                   coalesce(sum(coalesce(t.quantity, 1)), 0) as purchased_quantity,
+                   coalesce(sum(coalesce(t.price, 0)) filter (where t.currency_type = 'MONEY'), 0) as money_amount,
+                   coalesce(sum(coalesce(t.price, 0)) filter (where t.currency_type = 'INGOT'), 0) as ingot_amount
+            from t_toilet_market_transaction t
+            left join t_hospitals h on h.id = t.actor_hospital_id
+            where t.transaction_type = 'PURCHASE'
+              and t.create_time >= now() - interval '14 days'
+            group by t.actor_hospital_id
+            order by purchased_quantity desc, purchase_count desc, ingot_amount desc, money_amount desc
+            limit 20
+            """
+        )
+        aging_buckets = query_list(
+            conn,
+            """
+            with active_listings as (
+                select case
+                           when create_time >= now() - interval '6 hours' then '0-6小时'
+                           when create_time >= now() - interval '24 hours' then '6-24小时'
+                           when create_time >= now() - interval '48 hours' then '24-48小时'
+                           when create_time >= now() - interval '7 days' then '48小时-7天'
+                           else '7天以上'
+                       end as age_bucket,
+                       case
+                           when create_time >= now() - interval '6 hours' then 1
+                           when create_time >= now() - interval '24 hours' then 2
+                           when create_time >= now() - interval '48 hours' then 3
+                           when create_time >= now() - interval '7 days' then 4
+                           else 5
+                       end as sort_order,
+                       content_type,
+                       quantity
+                from t_toilet_market_listing
+                where status = 'ACTIVE'
+            )
+            select age_bucket,
+                   count(*) as listing_count,
+                   count(*) filter (where content_type = 'ITEM') as item_listing_count,
+                   count(*) filter (where content_type = 'MONEY') as money_listing_count,
+                   coalesce(sum(coalesce(quantity, 1)) filter (where content_type = 'ITEM'), 0) as item_quantity,
+                   coalesce(sum(coalesce(quantity, 1)) filter (where content_type = 'MONEY'), 0) as money_quantity
+            from active_listings
+            group by age_bucket, sort_order
+            order by sort_order
+            """
+        )
+    return {
+        "generatedAt": now_in_zone().isoformat(),
+        "zoneId": ZONE_ID,
+        "note": f"近14日成交与捡取统计；滞销品定义为活跃挂单超过 {TOILET_MARKET_STALE_HOURS} 小时未成交。",
+        "summary": summary,
+        "dailyTrend": daily_trend,
+        "itemSummary": item_summary,
+        "fastestConsumed": fastest_consumed,
+        "sellerLeaderboard": seller_leaderboard,
+        "buyerLeaderboard": buyer_leaderboard,
+        "agingBuckets": aging_buckets,
+    }
+
+
+def load_unavailable_toilet_market_stats(error: Exception):
+    return {
+        "generatedAt": now_in_zone().isoformat(),
+        "zoneId": ZONE_ID,
+        "sourceError": str(error),
+        "note": f"跳蚤市场数据源暂不可用：{error}",
+        "summary": {},
+        "dailyTrend": [],
+        "itemSummary": [],
+        "fastestConsumed": [],
+        "sellerLeaderboard": [],
+        "buyerLeaderboard": [],
+        "agingBuckets": [],
     }
 
 
@@ -2463,6 +2834,15 @@ def broker_stats_api():
     except Exception as exc:
         app.logger.warning("broker stats unavailable: %s", exc)
         return jsonify(load_unavailable_broker_stats(exc))
+
+
+@app.get("/api/toilet-market-stats")
+def toilet_market_stats_api():
+    try:
+        return jsonify(load_toilet_market_stats_from_prod())
+    except Exception as exc:
+        app.logger.warning("toilet market stats unavailable: %s", exc)
+        return jsonify(load_unavailable_toilet_market_stats(exc))
 
 
 @app.get("/api/stat-table")

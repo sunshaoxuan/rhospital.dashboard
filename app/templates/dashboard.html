@@ -177,6 +177,7 @@
         }
         .pill.green { background: rgba(72, 213, 151, 0.14); color: #8bf0bf; }
         .pill.yellow { background: rgba(255, 209, 102, 0.16); color: #ffe09a; }
+        .pill.red { background: rgba(255, 107, 134, 0.14); color: #ffb4c1; }
         .clickable-row { cursor: pointer; }
         .clickable-row:hover td { background: rgba(84, 167, 255, 0.10); }
         .item-link { border: 0; padding: 0; color: #9fd0ff; background: transparent; font: inherit; font-weight: 700; text-align: left; }
@@ -282,6 +283,7 @@
         <button class="tab-btn active" type="button" data-page-tab="overall">运营总览</button>
         <button class="tab-btn" type="button" data-page-tab="specialClinic">特需门诊</button>
         <button class="tab-btn" type="button" data-page-tab="broker">医托拉人</button>
+        <button class="tab-btn" type="button" data-page-tab="toiletMarket">跳蚤市场</button>
     </div>
 
     <div id="error" class="error"></div>
@@ -439,6 +441,40 @@
             </div>
         </section>
     </section>
+
+    <section id="toiletMarketPage" class="page-section" hidden>
+        <section class="cards clinic-summary-grid">
+            <div class="card"><div class="label">当前可售挂单</div><div class="value" id="toiletActiveListings">-</div><div class="hint" id="toiletActiveListingsHint">活跃池子</div></div>
+            <div class="card"><div class="label">当前可售道具数</div><div class="value" id="toiletActiveQuantity">-</div><div class="hint" id="toiletActiveQuantityHint">金钱类内容单独列示</div></div>
+            <div class="card"><div class="label">近14日成交</div><div class="value" id="toiletPurchaseCount">-</div><div class="hint" id="toiletPurchaseHint">成交次数和数量</div></div>
+            <div class="card"><div class="label">参与购买医院</div><div class="value" id="toiletBuyerCount">-</div><div class="hint" id="toiletBuyerHint">近14日买家</div></div>
+            <div class="card"><div class="label">参与销售医院</div><div class="value" id="toiletSellerCount">-</div><div class="hint" id="toiletSellerHint">活跃卖家和成交卖家</div></div>
+            <div class="card"><div class="label">滞销挂单</div><div class="value" id="toiletStaleListings">-</div><div class="hint" id="toiletStaleHint">活跃超过48小时未成交</div></div>
+            <div class="card"><div class="label">平均售出用时</div><div class="value" id="toiletAvgSaleMinutes">-</div><div class="hint" id="toiletAvgSaleHint">近14日成交挂单</div></div>
+            <div class="card"><div class="label">大街捡取</div><div class="value" id="toiletStreetPickupCount">-</div><div class="hint" id="toiletStreetPickupHint">被扔出后的消耗</div></div>
+        </section>
+
+        <section class="grid">
+            <div class="panel"><h2>跳蚤市场交易趋势</h2><div class="chart-box"><canvas id="toiletDailyChart"></canvas></div><div class="note" id="toiletTrendNote">成交和捡取统计近14日。</div></div>
+            <div class="panel"><h2>活跃挂单账龄</h2><div class="chart-box"><canvas id="toiletAgingChart"></canvas></div><div class="note">用于判断池子里是否堆积卖不出去的内容。</div></div>
+            <div class="panel wide">
+                <h2>商品热度 Top 30</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>商品</th><th>类型</th><th>可售挂单</th><th>可售数量</th><th>活跃卖家</th><th>滞销挂单</th><th>滞销数量</th><th>成交次数</th><th>成交数量</th><th>买家</th><th>成交卖家</th><th>金币成交额</th><th>元宝成交额</th><th>捡取次数</th><th>捡取数量</th><th>捡取医院</th></tr></thead><tbody id="toiletItemRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>最快消耗 Top 20</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>来源 ID</th><th>去向</th><th>商品</th><th>数量</th><th>货币</th><th>价格</th><th>来源医院</th><th>获得医院</th><th>耗时分钟</th><th>开始时间</th><th>消耗时间</th></tr></thead><tbody id="toiletFastestRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>卖家成交 Top 20</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>医院 ID</th><th>医院名</th><th>院长</th><th>成交次数</th><th>成交数量</th><th>金币收入</th><th>元宝收入</th></tr></thead><tbody id="toiletSellerRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>买家购买 Top 20</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>医院 ID</th><th>医院名</th><th>院长</th><th>购买次数</th><th>购买数量</th><th>金币支出</th><th>元宝支出</th></tr></thead><tbody id="toiletBuyerRows"></tbody></table></div>
+            </div>
+        </section>
+    </section>
 </main>
 
 <div class="modal-backdrop" id="itemModal" aria-hidden="true">
@@ -513,13 +549,14 @@
     });
 
     function switchPage(page) {
-        currentPage = ['specialClinic', 'broker'].includes(page) ? page : 'overall';
+        currentPage = ['specialClinic', 'broker', 'toiletMarket'].includes(page) ? page : 'overall';
         document.querySelectorAll('[data-page-tab]').forEach(button => {
             button.classList.toggle('active', button.dataset.pageTab === currentPage);
         });
         document.getElementById('overallPage').hidden = currentPage !== 'overall';
         document.getElementById('specialClinicPage').hidden = currentPage !== 'specialClinic';
         document.getElementById('brokerPage').hidden = currentPage !== 'broker';
+        document.getElementById('toiletMarketPage').hidden = currentPage !== 'toiletMarket';
         refreshCurrentPage();
     }
 
@@ -534,7 +571,9 @@
             ? loadSpecialClinicStats()
             : refreshPage === 'broker'
                 ? loadBrokerStats()
-                : loadStats();
+                : refreshPage === 'toiletMarket'
+                    ? loadToiletMarketStats()
+                    : loadStats();
         activeRefresh = refreshPromise
             .finally(() => {
                 activeRefresh = null;
@@ -593,6 +632,19 @@
             renderBrokerStats(await response.json());
         } catch (e) {
             error.textContent = `读取医托拉人统计失败：${e.message || e}`;
+            error.style.display = 'block';
+        }
+    }
+
+    async function loadToiletMarketStats() {
+        const error = document.getElementById('error');
+        error.style.display = 'none';
+        try {
+            const response = await fetch('api/toilet-market-stats', {cache: 'no-store'});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            renderToiletMarketStats(await response.json());
+        } catch (e) {
+            error.textContent = `读取跳蚤市场统计失败：${e.message || e}`;
             error.style.display = 'block';
         }
     }
@@ -688,6 +740,95 @@
         });
     }
 
+    function renderToiletMarketStats(data) {
+        const signature = stableStringify({
+            generatedAt: data.generatedAt,
+            zoneId: data.zoneId,
+            sourceError: data.sourceError || '',
+            summary: data.summary || {},
+            dailyTrend: data.dailyTrend || [],
+            itemSummary: data.itemSummary || [],
+            fastestConsumed: data.fastestConsumed || [],
+            sellerLeaderboard: data.sellerLeaderboard || [],
+            buyerLeaderboard: data.buyerLeaderboard || [],
+            agingBuckets: data.agingBuckets || [],
+        });
+        if (renderState.toiletMarketSignature === signature) return;
+        renderState.toiletMarketSignature = signature;
+        if (data.sourceError) {
+            const error = document.getElementById('error');
+            error.textContent = `跳蚤市场数据源暂不可用：${data.sourceError}`;
+            error.style.display = 'block';
+        }
+        const s = data.summary || {};
+        setText('generatedAt', `更新时间 ${formatDateTime(data.generatedAt)}，跳蚤市场时区 ${data.zoneId || '-'}`);
+        setText('toiletActiveListings', formatNumber(s.active_listing_count));
+        setText('toiletActiveListingsHint', `玩家卖家 ${formatNumber(s.active_seller_count)}，系统注入 ${formatNumber(s.admin_active_listing_count)} 单`);
+        setText('toiletActiveQuantity', formatNumber(s.active_item_quantity));
+        setText('toiletActiveQuantityHint', `金钱类内容 ${formatNumber(s.active_money_quantity)}，系统注入总量 ${formatNumber(s.admin_active_quantity)}`);
+        setText('toiletPurchaseCount', formatNumber(s.purchase_count));
+        setText('toiletPurchaseHint', `道具 ${formatNumber(s.purchased_item_quantity)}，金钱内容 ${formatNumber(s.purchased_money_quantity)}`);
+        setText('toiletBuyerCount', formatNumber(s.buyer_count));
+        setText('toiletBuyerHint', '近14日实际完成购买的医院');
+        setText('toiletSellerCount', formatNumber(s.seller_count));
+        setText('toiletSellerHint', `近14日成交卖家，当前活跃卖家 ${formatNumber(s.active_seller_count)}`);
+        setText('toiletStaleListings', formatNumber(s.stale_listing_count));
+        setText('toiletStaleHint', `道具 ${formatNumber(s.stale_item_quantity)}，金钱内容 ${formatNumber(s.stale_money_quantity)}，占比 ${formatPercent(s.stale_rate)}`);
+        setText('toiletAvgSaleMinutes', formatDurationMinutes(s.avg_sale_minutes));
+        setText('toiletAvgSaleHint', `中位数 ${formatDurationMinutes(s.median_sale_minutes)}`);
+        setText('toiletStreetPickupCount', formatNumber(s.street_pickup_count));
+        setText('toiletStreetPickupHint', `道具 ${formatNumber(s.street_pickup_item_quantity)}，金钱内容 ${formatNumber(s.street_pickup_money_quantity)}，大街待捡 ${formatNumber(s.street_available_count)} 单`);
+        setText('toiletTrendNote', data.note || '近14日成交、上架和成功捡取。');
+
+        renderToiletDailyChart(data.dailyTrend || []);
+        renderToiletAgingChart(data.agingBuckets || []);
+        renderSimpleRows('toiletItemRows', data.itemSummary || [], [
+            'item_id', 'item_name', 'content_type', 'active_listing_count', 'active_quantity',
+            'active_seller_count', 'stale_listing_count', 'stale_quantity', 'purchase_count',
+            'purchased_quantity', 'buyer_count', 'seller_count', 'money_amount', 'ingot_amount',
+            'pickup_count', 'pickup_quantity', 'picker_count'
+        ], {
+            content_type: value => toiletContentTypeLabel(value),
+            stale_listing_count: (value, row) => Number(value || 0) > 0
+                ? `<span class="pill red">${formatNumber(value)}</span>`
+                : '<span class="pill green">0</span>',
+        });
+        renderSimpleRows('toiletFastestRows', data.fastestConsumed || [], [
+            'source_id', 'consume_type', 'item_name', 'quantity', 'currency_type', 'price',
+            'source_hospital_id', 'target_hospital_id', 'consume_minutes', 'started_at', 'consumed_at'
+        ], {
+            currency_type: value => toiletCurrencyLabel(value),
+            consume_minutes: value => formatMoney(value),
+        });
+        renderSimpleRows('toiletSellerRows', data.sellerLeaderboard || [], [
+            'hospital_id', 'hospital_name', 'director_name', 'purchase_count', 'sold_quantity', 'money_amount', 'ingot_amount'
+        ]);
+        renderSimpleRows('toiletBuyerRows', data.buyerLeaderboard || [], [
+            'hospital_id', 'hospital_name', 'director_name', 'purchase_count', 'purchased_quantity', 'money_amount', 'ingot_amount'
+        ]);
+    }
+
+    function renderToiletDailyChart(rows) {
+        upsertChart('toiletDailyChart', 'bar', 'toiletDailyChart', {
+            labels: rows.map(row => row.day),
+            datasets: [
+                {label: '新上架次数', data: rows.map(row => Number(row.listing_count || 0)), backgroundColor: 'rgba(84, 167, 255, 0.56)'},
+                {label: '成交次数', data: rows.map(row => Number(row.purchase_count || 0)), backgroundColor: 'rgba(72, 213, 151, 0.64)'},
+                {label: '成功捡取次数', type: 'line', data: rows.map(row => Number(row.pickup_count || 0)), borderColor: '#ffd166', backgroundColor: 'rgba(255, 209, 102, 0.14)', tension: 0.32}
+            ]
+        });
+    }
+
+    function renderToiletAgingChart(rows) {
+        upsertChart('toiletAgingChart', 'bar', 'toiletAgingChart', {
+            labels: rows.map(row => row.age_bucket),
+            datasets: [
+                {label: '道具挂单', data: rows.map(row => Number(row.item_listing_count || 0)), backgroundColor: 'rgba(184, 152, 255, 0.62)'},
+                {label: '金钱挂单', data: rows.map(row => Number(row.money_listing_count || 0)), backgroundColor: 'rgba(255, 209, 102, 0.62)'}
+            ]
+        });
+    }
+
     function renderBrokerDailyChart(rows) {
         upsertChart('brokerDailyChart', 'line', 'brokerDailyChart', {
             labels: rows.map(row => row.day),
@@ -722,6 +863,14 @@
 
     function brokerRelationLabel(value) {
         return value === 'FRIEND' ? '好友' : value === 'NON_FRIEND' ? '非好友' : escapeHtml(value || '-');
+    }
+
+    function toiletContentTypeLabel(value) {
+        return value === 'MONEY' ? '金钱' : value === 'ITEM' ? '道具' : escapeHtml(value || '-');
+    }
+
+    function toiletCurrencyLabel(value) {
+        return value === 'INGOT' ? '元宝' : value === 'MONEY' ? '金钱' : '-';
     }
 
     function renderOnlineChart(rows) {
@@ -1221,6 +1370,12 @@
     function formatNumber(value) { return Number(value || 0).toLocaleString('zh-CN'); }
     function formatMoney(value) { return Number(value || 0).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
     function formatPercent(value) { return `${formatMoney(value)}%`; }
+    function formatDurationMinutes(value) {
+        const minutes = Number(value || 0);
+        if (minutes < 60) return `${formatMoney(minutes)} 分钟`;
+        if (minutes < 1440) return `${formatMoney(minutes / 60)} 小时`;
+        return `${formatMoney(minutes / 1440)} 天`;
+    }
     function formatDateTime(value) {
         if (!value) return '-';
         try { return new Date(value).toLocaleString('zh-CN', {hour12: false}); } catch (_) { return value; }
