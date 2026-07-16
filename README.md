@@ -124,6 +124,8 @@ Firebase Authentication 的已获授权网域需要包含 `ccnode.briconbric.com
 
 ccnode 通过 Compose 内的 `statistics-tunnel` 服务连接统计节点。专用 SSH 私钥保存在 `/rhdashboard/ssh/statistics-api`，已校验的主机公钥保存在 `/rhdashboard/ssh/statistics-api.known_hosts`，两者都只保留在服务器本地。备份节点的对应 `authorized_keys` 条目限制来源为 ccnode，并且只能转发到 `127.0.0.1:18092`。Dashboard 容器只访问 Compose 内部地址 `http://statistics-tunnel:18092`。
 
+隧道使用 10 秒保活探测并由 Docker 自动重启。Dashboard 对只读 GET 请求配置连接池和有限重试，用于吸收短时 SSH 链路重连。启用远端统计 API 后，ccnode 不再启动本地数据库快照采样线程，也不需要任何 `PROD_DB_*` 变量。
+
 首次使用 `/rhdashboard/` 子路径访问时，需要在 ccnode 的 nginx 上追加 location：
 
 ```bash

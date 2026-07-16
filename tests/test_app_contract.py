@@ -366,6 +366,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("statistics-tunnel:", compose)
         self.assertIn("StrictHostKeyChecking=yes", compose)
         self.assertIn("0.0.0.0:18092:127.0.0.1:18092", compose)
+        self.assertIn("ServerAliveInterval=10", compose)
+        self.assertIn("ConnectionAttempts=3", compose)
         self.assertIn("condition: service_healthy", compose)
         self.assertIn("openssh-client", dockerfile)
         self.assertIn("ssh/statistics-api.known_hosts", remote_update)
@@ -470,6 +472,35 @@ class AppContractTest(unittest.TestCase):
             app_module.SERVICE_MODE = old_mode
             app_module.STATS_API_BASE_URL = old_url
             app_module.STATS_API_TOKEN = old_token
+
+    def test_statistics_api_session_reuses_pool_and_retries_get_requests(self):
+        old_state = app_module.stats_api_session_state
+        app_module.stats_api_session_state = type(old_state)()
+        client = None
+        try:
+            client = app_module.get_stats_api_session()
+            self.assertIs(client, app_module.get_stats_api_session())
+
+            retries = client.get_adapter("http://").max_retries
+            self.assertEqual(retries.total, 2)
+            self.assertEqual(retries.connect, 2)
+            self.assertEqual(retries.read, 2)
+            self.assertIn("GET", retries.allowed_methods)
+        finally:
+            if client is not None:
+                client.close()
+            app_module.stats_api_session_state = old_state
+
+    def test_dashboard_proxy_does_not_start_direct_database_sampler(self):
+        old_url = app_module.STATS_API_BASE_URL
+        old_disabled = os.environ.pop("OPS_DASHBOARD_DISABLE_SAMPLER", None)
+        try:
+            app_module.STATS_API_BASE_URL = "http://statistics-tunnel:18092"
+            self.assertFalse(app_module.should_start_sampler())
+        finally:
+            app_module.STATS_API_BASE_URL = old_url
+            if old_disabled is not None:
+                os.environ["OPS_DASHBOARD_DISABLE_SAMPLER"] = old_disabled
 
     def test_special_clinic_route_loads_only_requested_week(self):
         with patch.object(app_module, "load_special_clinic_stats_from_prod", return_value={"weeklyPages": []}) as loader:

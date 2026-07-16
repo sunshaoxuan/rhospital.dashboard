@@ -16,6 +16,8 @@ import psycopg
 import requests
 from authlib.jose import JsonWebToken
 from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 
@@ -291,6 +293,20 @@ def get_stats_api_session():
     client = getattr(stats_api_session_state, "client", None)
     if client is None:
         client = requests.Session()
+        retries = Retry(
+            total=2,
+            connect=2,
+            read=2,
+            status=2,
+            other=0,
+            backoff_factor=0.3,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=frozenset({"GET"}),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retries, pool_connections=8, pool_maxsize=16)
+        client.mount("http://", adapter)
+        client.mount("https://", adapter)
         stats_api_session_state.client = client
     return client
 
@@ -2991,5 +3007,10 @@ def sampler():
         time.sleep(600)
 
 
-if os.getenv("OPS_DASHBOARD_DISABLE_SAMPLER", "").strip().lower() not in {"1", "true", "yes"}:
+def should_start_sampler():
+    disabled = os.getenv("OPS_DASHBOARD_DISABLE_SAMPLER", "").strip().lower() in {"1", "true", "yes"}
+    return not disabled and not use_stats_api()
+
+
+if should_start_sampler():
     threading.Thread(target=sampler, daemon=True).start()
