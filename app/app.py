@@ -294,12 +294,12 @@ def get_stats_api_session():
     if client is None:
         client = requests.Session()
         retries = Retry(
-            total=2,
-            connect=2,
+            total=4,
+            connect=4,
             read=2,
-            status=2,
+            status=1,
             other=0,
-            backoff_factor=0.3,
+            backoff_factor=0.5,
             status_forcelist=(502, 503, 504),
             allowed_methods=frozenset({"GET"}),
             raise_on_status=False,

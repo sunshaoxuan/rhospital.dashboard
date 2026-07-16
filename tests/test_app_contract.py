@@ -482,8 +482,8 @@ class AppContractTest(unittest.TestCase):
             self.assertIs(client, app_module.get_stats_api_session())
 
             retries = client.get_adapter("http://").max_retries
-            self.assertEqual(retries.total, 2)
-            self.assertEqual(retries.connect, 2)
+            self.assertEqual(retries.total, 4)
+            self.assertEqual(retries.connect, 4)
             self.assertEqual(retries.read, 2)
             self.assertIn("GET", retries.allowed_methods)
         finally:
