@@ -68,9 +68,10 @@ docker compose down
 - 医托拉人链路趋势图使用双轴展示，普通拉人走左轴，反拉成功走右轴；钱包生成数和普通拉人次数保持一致，不在顶部卡片和链路趋势图重复展示，只作为打开率分母和明细审计字段保留。
 - 医托钱包统计只展示钱包规则上线后的普通拉人、钱包和名片反拉数据，并按好友/非好友和拉走人数段 `1-39`、`40-69`、`70+` 拆分；钱包上线前没有金币或道具掉落机会，页面只展示当前生产规则，不展示旧规则对比。当前生产规则读取 `t_broker_wallet_rule`，钱包读取 `t_broker_wallet_drop`，名片读取 `t_broker_retaliation_voucher`。
 - 跳蚤市场页展示当前可售挂单和数量、近 14 日成交频度与数量、玩家买卖医院数、活跃挂单账龄、商品流转 Top、最快消耗、买卖医院 Top 和大街成功捡取；滞销口径为活跃超过 48 小时仍未成交的挂单。
+- 跳蚤市场页增加降权物品、累计扔到大街和累计被乞丐捡取三组统计。降权按医院与挂单组合统计当前二分之一权重、四分之一权重、归零和历史终态归档；入街与捡取按道具和金钱内容分别汇总记录数、数量、参与医院及最近发生时间。
 - 最快消耗中，成交耗时使用挂单 `create_time` 到首笔 `PURCHASE` 交易 `create_time` 的秒差，大街捡取耗时使用入街记录 `create_time` 到成功 `STREET_PICKUP` 交易 `create_time` 的秒差；开始和完成时间显示到秒，避免同一分钟内完成时看起来时间完全相同。
 - 跳蚤市场成功捡取只统计 `t_toilet_market_transaction` 中 `transaction_type='STREET_PICKUP'` 且 `street_item_id` 非空的记录，排除每日翻找但没有捡到内容的失败尝试；玩家卖家数排除 `listing_source='ADMIN'` 的系统注入挂单，系统注入挂单和数量保留在池子提示中。
-- 跳蚤市场统计只读查询 `t_toilet_market_listing`、`t_toilet_market_transaction`、`t_toilet_street_item` 和 `t_hospitals`。
+- 跳蚤市场统计只读查询 `t_toilet_market_listing`、`t_toilet_market_offer_exposure`、`t_toilet_market_offer_exposure_archive`、`t_toilet_market_transaction`、`t_toilet_street_item` 和 `t_hospitals`。
 - 特需门诊页按北京时间和周三开诊周期展示子页签，最新周排在最前，新一周出现后自动把上一周向后顺延；接口只计算当前选中的一周，其他周在点击后独立加载并缓存。每个周期页签包含周期每日诊断、每小时总览、病历等级分布、具体病历分布、道具奖品发放、后台补偿奖品、资源奖品发放、每周库存消耗、医院行为 Top 30、对账异常和风险提示次数。
 - 周期每日诊断按选中周三周期生成 7 天序列，并按 `create_time` 的北京时间日期统计实际发生日；日确诊和累计确诊使用左轴，付费确诊使用右轴；每日表同时列出票消耗、购票和元宝成本。
 - 特需门诊道具奖品来自 `reward_items` 道具 JSON 和后台补偿物品批次，并单独展示 Top 图和明细表；名称映射包含病志残页 `1351` 和特需门诊票 `1792`；主账资源来自确诊记录字段，声望读取 `prestige_reward`，资源图中金钱使用独立右轴，避免百万级金钱压住其他资源。

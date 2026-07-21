@@ -2445,6 +2445,20 @@ def load_toilet_market_stats_from_prod():
                 (select coalesce(sum(coalesce(quantity, 1)), 0) from street_pickup_tx where content_type = 'MONEY') as street_pickup_money_quantity,
                 (select count(*) from t_toilet_street_item where status = 'AVAILABLE') as street_available_count,
                 (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item where status = 'AVAILABLE') as street_available_quantity,
+                (select count(*) from t_toilet_market_offer_exposure where display_count > 0) as downrank_exposure_count,
+                (select count(distinct listing_id) from t_toilet_market_offer_exposure where display_count > 0) as downrank_listing_count,
+                (select count(distinct hospital_id) from t_toilet_market_offer_exposure where display_count > 0) as downrank_hospital_count,
+                (select count(*) from t_toilet_market_offer_exposure where zero_rated_at is not null) as zero_rated_exposure_count,
+                (select count(*) from t_toilet_street_item) as street_thrown_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item) as street_thrown_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item where content_type = 'ITEM') as street_thrown_item_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item where content_type = 'MONEY') as street_thrown_money_quantity,
+                (select count(distinct source_hospital_id) from t_toilet_street_item) as street_source_hospital_count,
+                (select count(*) from t_toilet_street_item where status = 'PICKED' and picked_hospital_id is not null) as beggar_picked_count,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item where status = 'PICKED' and picked_hospital_id is not null) as beggar_picked_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item where status = 'PICKED' and picked_hospital_id is not null and content_type = 'ITEM') as beggar_picked_item_quantity,
+                (select coalesce(sum(coalesce(quantity, 1)), 0) from t_toilet_street_item where status = 'PICKED' and picked_hospital_id is not null and content_type = 'MONEY') as beggar_picked_money_quantity,
+                (select count(distinct picked_hospital_id) from t_toilet_street_item where status = 'PICKED' and picked_hospital_id is not null) as beggar_picker_hospital_count,
                 (select round(avg(sale_minutes)::numeric, 2) from sold_latency) as avg_sale_minutes,
                 (select round(percentile_cont(0.5) within group (order by sale_minutes)::numeric, 2) from sold_latency) as median_sale_minutes
             """,
@@ -2726,6 +2740,96 @@ def load_toilet_market_stats_from_prod():
             order by sort_order
             """
         )
+        downranked_items = query_list(
+            conn,
+            """
+            with downrank_events as (
+                select l.item_id,
+                       coalesce(l.item_name, '金钱') as item_name,
+                       coalesce(l.content_type::text, 'ITEM') as content_type,
+                       e.hospital_id,
+                       e.listing_id,
+                       e.display_count,
+                       e.zero_rated_at,
+                       false as archived,
+                       e.update_time as recorded_at
+                from t_toilet_market_offer_exposure e
+                join t_toilet_market_listing l on l.id = e.listing_id
+                where e.display_count > 0
+                union all
+                select l.item_id,
+                       coalesce(l.item_name, '金钱') as item_name,
+                       coalesce(l.content_type::text, 'ITEM') as content_type,
+                       a.hospital_id,
+                       a.listing_id,
+                       a.display_count,
+                       a.zero_rated_at,
+                       true as archived,
+                       a.archived_at as recorded_at
+                from t_toilet_market_offer_exposure_archive a
+                join t_toilet_market_listing l on l.id = a.listing_id
+                where a.display_count > 0
+            )
+            select coalesce(item_id, 0) as item_id,
+                   item_name,
+                   content_type,
+                   count(distinct listing_id) filter (where not archived) as active_listing_count,
+                   count(*) filter (where not archived) as downranked_pair_count,
+                   count(*) filter (where not archived and display_count = 1) as half_weight_pair_count,
+                   count(*) filter (where not archived and display_count = 2) as quarter_weight_pair_count,
+                   count(*) filter (where not archived and zero_rated_at is not null) as zero_rated_pair_count,
+                   count(distinct hospital_id) filter (where not archived) as affected_hospital_count,
+                   count(*) filter (where archived) as archived_downranked_pair_count,
+                   to_char(max(recorded_at) at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as latest_recorded_at
+            from downrank_events
+            group by coalesce(item_id, 0), item_name, content_type
+            order by downranked_pair_count desc, archived_downranked_pair_count desc, item_name
+            limit 50
+            """,
+            (ZONE_ID,),
+        )
+        street_thrown_items = query_list(
+            conn,
+            """
+            select coalesce(item_id, 0) as item_id,
+                   coalesce(item_name, '金钱') as item_name,
+                   coalesce(content_type::text, 'ITEM') as content_type,
+                   count(*) as thrown_record_count,
+                   coalesce(sum(coalesce(quantity, 1)), 0) as thrown_quantity,
+                   count(distinct source_hospital_id) as source_hospital_count,
+                   count(*) filter (where status = 'AVAILABLE') as available_record_count,
+                   coalesce(sum(coalesce(quantity, 1)) filter (where status = 'AVAILABLE'), 0) as available_quantity,
+                   count(*) filter (where status = 'PICKED') as picked_record_count,
+                   coalesce(sum(coalesce(quantity, 1)) filter (where status = 'PICKED'), 0) as picked_quantity,
+                   count(*) filter (where status = 'SUSPENDED') as suspended_record_count,
+                   to_char(max(create_time) at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as latest_thrown_at
+            from t_toilet_street_item
+            group by coalesce(item_id, 0), coalesce(item_name, '金钱'), coalesce(content_type::text, 'ITEM')
+            order by thrown_record_count desc, thrown_quantity desc, item_name
+            limit 50
+            """,
+            (ZONE_ID,),
+        )
+        beggar_picked_items = query_list(
+            conn,
+            """
+            select coalesce(item_id, 0) as item_id,
+                   coalesce(item_name, '金钱') as item_name,
+                   coalesce(content_type::text, 'ITEM') as content_type,
+                   count(*) as pickup_count,
+                   coalesce(sum(coalesce(quantity, 1)), 0) as pickup_quantity,
+                   count(distinct picked_hospital_id) as picker_hospital_count,
+                   count(distinct source_hospital_id) as source_hospital_count,
+                   to_char(max(picked_at) at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as latest_picked_at
+            from t_toilet_street_item
+            where status = 'PICKED'
+              and picked_hospital_id is not null
+            group by coalesce(item_id, 0), coalesce(item_name, '金钱'), coalesce(content_type::text, 'ITEM')
+            order by pickup_count desc, pickup_quantity desc, item_name
+            limit 50
+            """,
+            (ZONE_ID,),
+        )
     return {
         "generatedAt": now_in_zone().isoformat(),
         "zoneId": ZONE_ID,
@@ -2737,6 +2841,9 @@ def load_toilet_market_stats_from_prod():
         "sellerLeaderboard": seller_leaderboard,
         "buyerLeaderboard": buyer_leaderboard,
         "agingBuckets": aging_buckets,
+        "downrankedItems": downranked_items,
+        "streetThrownItems": street_thrown_items,
+        "beggarPickedItems": beggar_picked_items,
     }
 
 
@@ -2753,6 +2860,9 @@ def load_unavailable_toilet_market_stats(error: Exception):
         "sellerLeaderboard": [],
         "buyerLeaderboard": [],
         "agingBuckets": [],
+        "downrankedItems": [],
+        "streetThrownItems": [],
+        "beggarPickedItems": [],
     }
 
 

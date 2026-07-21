@@ -167,6 +167,13 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("成交耗时从挂单创建算到 PURCHASE 交易", html)
         self.assertIn("卖家成交 Top 20", html)
         self.assertIn("买家购买 Top 20", html)
+        self.assertIn("当前降权组合", html)
+        self.assertIn("降权物品统计 Top 50", html)
+        self.assertIn("扔到大街的物品统计 Top 50", html)
+        self.assertIn("被乞丐捡到的物品统计 Top 50", html)
+        self.assertIn('id="toiletDownrankedItemRows"', html)
+        self.assertIn('id="toiletStreetThrownItemRows"', html)
+        self.assertIn('id="toiletBeggarPickedItemRows"', html)
         self.assertIn('id="toiletDailyChart"', html)
         self.assertIn('id="toiletAgingChart"', html)
 
@@ -189,6 +196,21 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("as consume_seconds", source)
         self.assertIn("'YYYY-MM-DD HH24:MI:SS'", source)
         self.assertIn("pickup_quantity", source)
+        self.assertIn("t_toilet_market_offer_exposure", source)
+        self.assertIn("t_toilet_market_offer_exposure_archive", source)
+        self.assertIn("display_count = 1", source)
+        self.assertIn("display_count = 2", source)
+        self.assertIn("zero_rated_at is not null", source)
+        self.assertIn("street_thrown_items", source)
+        self.assertIn("beggar_picked_items", source)
+        self.assertIn("picked_hospital_id is not null", source)
+
+    def test_unavailable_toilet_market_stats_keep_new_item_collections(self):
+        payload = app_module.load_unavailable_toilet_market_stats(RuntimeError("offline"))
+
+        self.assertEqual(payload["downrankedItems"], [])
+        self.assertEqual(payload["streetThrownItems"], [])
+        self.assertEqual(payload["beggarPickedItems"], [])
 
     def test_overall_stats_include_weekly_yuanbao_spending(self):
         source = Path("app/app.py").read_text(encoding="utf-8")

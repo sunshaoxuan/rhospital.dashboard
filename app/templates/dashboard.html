@@ -515,7 +515,10 @@
             <div class="card"><div class="label">参与销售医院</div><div class="value" id="toiletSellerCount">-</div><div class="hint" id="toiletSellerHint">活跃卖家和成交卖家</div></div>
             <div class="card"><div class="label">滞销挂单</div><div class="value" id="toiletStaleListings">-</div><div class="hint" id="toiletStaleHint">活跃超过48小时未成交</div></div>
             <div class="card"><div class="label">平均售出用时</div><div class="value" id="toiletAvgSaleMinutes">-</div><div class="hint" id="toiletAvgSaleHint">近14日成交挂单</div></div>
-            <div class="card"><div class="label">大街捡取</div><div class="value" id="toiletStreetPickupCount">-</div><div class="hint" id="toiletStreetPickupHint">被扔出后的消耗</div></div>
+            <div class="card"><div class="label">近14日乞丐捡取</div><div class="value" id="toiletStreetPickupCount">-</div><div class="hint" id="toiletStreetPickupHint">被扔出后的消耗</div></div>
+            <div class="card"><div class="label">当前降权组合</div><div class="value" id="toiletDownrankExposureCount">-</div><div class="hint" id="toiletDownrankExposureHint">医院与挂单组合</div></div>
+            <div class="card"><div class="label">累计扔到大街</div><div class="value" id="toiletStreetThrownCount">-</div><div class="hint" id="toiletStreetThrownHint">街头池全部记录</div></div>
+            <div class="card"><div class="label">累计乞丐捡取</div><div class="value" id="toiletBeggarPickedCount">-</div><div class="hint" id="toiletBeggarPickedHint">实际获得街头内容</div></div>
         </section>
 
         <section class="grid">
@@ -524,6 +527,21 @@
             <div class="panel wide">
                 <h2>商品热度 Top 30</h2>
                 <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>商品</th><th>类型</th><th>可售挂单</th><th>可售数量</th><th>活跃卖家</th><th>滞销挂单</th><th>滞销数量</th><th>成交次数</th><th>成交数量</th><th>买家</th><th>成交卖家</th><th>金币成交额</th><th>元宝成交额</th><th>捡取次数</th><th>捡取数量</th><th>捡取医院</th></tr></thead><tbody id="toiletItemRows"></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>降权物品统计 Top 50</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>商品</th><th>类型</th><th>当前涉及挂单</th><th>当前降权组合</th><th>二分之一权重</th><th>四分之一权重</th><th>已归零</th><th>受影响医院</th><th>历史终态组合</th><th>最近记录时间</th></tr></thead><tbody id="toiletDownrankedItemRows"></tbody></table></div>
+                <div class="note">每个医院与挂单独立计算。一次未购买为二分之一权重，两次为四分之一，三次后归零；历史终态包含已成交或已扔街挂单的归档记录。</div>
+            </div>
+            <div class="panel wide">
+                <h2>扔到大街的物品统计 Top 50</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>商品</th><th>类型</th><th>入街记录</th><th>入街数量</th><th>来源医院</th><th>待捡记录</th><th>待捡数量</th><th>已捡记录</th><th>已捡数量</th><th>暂停记录</th><th>最近入街时间</th></tr></thead><tbody id="toiletStreetThrownItemRows"></tbody></table></div>
+                <div class="note">累计统计街头池全部记录，按 AVAILABLE、PICKED 和 SUSPENDED 状态拆分。</div>
+            </div>
+            <div class="panel wide">
+                <h2>被乞丐捡到的物品统计 Top 50</h2>
+                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>商品</th><th>类型</th><th>捡取次数</th><th>捡取数量</th><th>捡取医院</th><th>来源医院</th><th>最近捡取时间</th></tr></thead><tbody id="toiletBeggarPickedItemRows"></tbody></table></div>
+                <div class="note">只统计街头记录状态为 PICKED 且已记录捡取医院的实际成功拾取。</div>
             </div>
             <div class="panel wide">
                 <h2>最快消耗 Top 20</h2>
@@ -872,6 +890,9 @@
             sellerLeaderboard: data.sellerLeaderboard || [],
             buyerLeaderboard: data.buyerLeaderboard || [],
             agingBuckets: data.agingBuckets || [],
+            downrankedItems: data.downrankedItems || [],
+            streetThrownItems: data.streetThrownItems || [],
+            beggarPickedItems: data.beggarPickedItems || [],
         });
         if (renderState.toiletMarketSignature === signature) return;
         renderState.toiletMarketSignature = signature;
@@ -898,6 +919,12 @@
         setText('toiletAvgSaleHint', `中位数 ${formatDurationMinutes(s.median_sale_minutes)}`);
         setText('toiletStreetPickupCount', formatNumber(s.street_pickup_count));
         setText('toiletStreetPickupHint', `道具 ${formatNumber(s.street_pickup_item_quantity)}，金钱内容 ${formatNumber(s.street_pickup_money_quantity)}，大街待捡 ${formatNumber(s.street_available_count)} 单`);
+        setText('toiletDownrankExposureCount', formatNumber(s.downrank_exposure_count));
+        setText('toiletDownrankExposureHint', `涉及 ${formatNumber(s.downrank_listing_count)} 个挂单、${formatNumber(s.downrank_hospital_count)} 家医院，已归零 ${formatNumber(s.zero_rated_exposure_count)}`);
+        setText('toiletStreetThrownCount', formatNumber(s.street_thrown_count));
+        setText('toiletStreetThrownHint', `道具 ${formatNumber(s.street_thrown_item_quantity)}，金钱内容 ${formatNumber(s.street_thrown_money_quantity)}，来源医院 ${formatNumber(s.street_source_hospital_count)}`);
+        setText('toiletBeggarPickedCount', formatNumber(s.beggar_picked_count));
+        setText('toiletBeggarPickedHint', `道具 ${formatNumber(s.beggar_picked_item_quantity)}，金钱内容 ${formatNumber(s.beggar_picked_money_quantity)}，捡取医院 ${formatNumber(s.beggar_picker_hospital_count)}`);
         setText('toiletTrendNote', data.note || '近14日成交、上架和成功捡取。');
 
         renderToiletDailyChart(data.dailyTrend || []);
@@ -926,6 +953,25 @@
         renderSimpleRows('toiletBuyerRows', data.buyerLeaderboard || [], [
             'hospital_id', 'hospital_name', 'director_name', 'purchase_count', 'purchased_quantity', 'money_amount', 'ingot_amount'
         ]);
+        renderSimpleRows('toiletDownrankedItemRows', data.downrankedItems || [], [
+            'item_id', 'item_name', 'content_type', 'active_listing_count', 'downranked_pair_count',
+            'half_weight_pair_count', 'quarter_weight_pair_count', 'zero_rated_pair_count',
+            'affected_hospital_count', 'archived_downranked_pair_count', 'latest_recorded_at'
+        ], {
+            content_type: value => toiletContentTypeLabel(value),
+            zero_rated_pair_count: value => Number(value || 0) > 0
+                ? `<span class="pill red">${formatNumber(value)}</span>`
+                : '<span class="pill green">0</span>',
+        });
+        renderSimpleRows('toiletStreetThrownItemRows', data.streetThrownItems || [], [
+            'item_id', 'item_name', 'content_type', 'thrown_record_count', 'thrown_quantity',
+            'source_hospital_count', 'available_record_count', 'available_quantity', 'picked_record_count',
+            'picked_quantity', 'suspended_record_count', 'latest_thrown_at'
+        ], {content_type: value => toiletContentTypeLabel(value)});
+        renderSimpleRows('toiletBeggarPickedItemRows', data.beggarPickedItems || [], [
+            'item_id', 'item_name', 'content_type', 'pickup_count', 'pickup_quantity',
+            'picker_hospital_count', 'source_hospital_count', 'latest_picked_at'
+        ], {content_type: value => toiletContentTypeLabel(value)});
     }
 
     function renderToiletDailyChart(rows) {
