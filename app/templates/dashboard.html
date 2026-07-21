@@ -221,6 +221,8 @@
             border-radius: 8px;
             scrollbar-width: thin;
         }
+        .table-scroll.bounded-table { max-height: 720px; overflow: auto; }
+        .bounded-table thead { position: sticky; top: 0; z-index: 1; }
         table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
         .purchase-grid table { min-width: 680px; }
         .modal table { min-width: 760px; }
@@ -514,9 +516,7 @@
             <div class="card"><div class="label">参与购买医院</div><div class="value" id="toiletBuyerCount">-</div><div class="hint" id="toiletBuyerHint">近14日买家</div></div>
             <div class="card"><div class="label">参与销售医院</div><div class="value" id="toiletSellerCount">-</div><div class="hint" id="toiletSellerHint">活跃卖家和成交卖家</div></div>
             <div class="card"><div class="label">滞销挂单</div><div class="value" id="toiletStaleListings">-</div><div class="hint" id="toiletStaleHint">活跃超过48小时未成交</div></div>
-            <div class="card"><div class="label">平均售出用时</div><div class="value" id="toiletAvgSaleMinutes">-</div><div class="hint" id="toiletAvgSaleHint">近14日成交挂单</div></div>
-            <div class="card"><div class="label">近14日乞丐捡取</div><div class="value" id="toiletStreetPickupCount">-</div><div class="hint" id="toiletStreetPickupHint">被扔出后的消耗</div></div>
-            <div class="card"><div class="label">当前降权组合</div><div class="value" id="toiletDownrankExposureCount">-</div><div class="hint" id="toiletDownrankExposureHint">医院与挂单组合</div></div>
+            <div class="card"><div class="label">当前降权挂单</div><div class="value" id="toiletDownrankListingCount">-</div><div class="hint" id="toiletDownrankListingHint">按挂单最低状态统计</div></div>
             <div class="card"><div class="label">累计扔到大街</div><div class="value" id="toiletStreetThrownCount">-</div><div class="hint" id="toiletStreetThrownHint">街头池全部记录</div></div>
             <div class="card"><div class="label">累计乞丐捡取</div><div class="value" id="toiletBeggarPickedCount">-</div><div class="hint" id="toiletBeggarPickedHint">实际获得街头内容</div></div>
         </section>
@@ -529,9 +529,9 @@
                 <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>商品</th><th>类型</th><th>可售挂单</th><th>可售数量</th><th>活跃卖家</th><th>滞销挂单</th><th>滞销数量</th><th>成交次数</th><th>成交数量</th><th>买家</th><th>成交卖家</th><th>金币成交额</th><th>元宝成交额</th><th>捡取次数</th><th>捡取数量</th><th>捡取医院</th></tr></thead><tbody id="toiletItemRows"></tbody></table></div>
             </div>
             <div class="panel wide">
-                <h2>降权物品统计 Top 50</h2>
-                <div class="table-scroll clinic-table wide-clinic-table"><table><thead><tr><th>道具 ID</th><th>商品</th><th>类型</th><th>当前涉及挂单</th><th>当前降权组合</th><th>二分之一权重</th><th>四分之一权重</th><th>已归零</th><th>受影响医院</th><th>历史终态组合</th><th>最近记录时间</th></tr></thead><tbody id="toiletDownrankedItemRows"></tbody></table></div>
-                <div class="note">每个医院与挂单独立计算。一次未购买为二分之一权重，两次为四分之一，三次后归零；历史终态包含已成交或已扔街挂单的归档记录。</div>
+                <h2>当前降权挂单明细</h2>
+                <div class="table-scroll clinic-table wide-clinic-table bounded-table"><table><thead><tr><th>挂单 ID</th><th>道具 ID</th><th>商品</th><th>类型</th><th>数量</th><th>卖家医院 ID</th><th>医院名</th><th>院长</th><th>最低状态</th><th>首次归零时间</th><th>上架时间</th></tr></thead><tbody id="toiletDownrankedListingRows"></tbody></table></div>
+                <div class="note">每条当前活跃挂单只展示已存在记录中的最低状态，医院信息取物品所属的卖家医院。页面不展示造成降权或归零的查看医院；生产记录没有独立的归零原因字段，因此省略原因列。</div>
             </div>
             <div class="panel wide">
                 <h2>扔到大街的物品统计 Top 50</h2>
@@ -890,7 +890,7 @@
             sellerLeaderboard: data.sellerLeaderboard || [],
             buyerLeaderboard: data.buyerLeaderboard || [],
             agingBuckets: data.agingBuckets || [],
-            downrankedItems: data.downrankedItems || [],
+            downrankedListings: data.downrankedListings || [],
             streetThrownItems: data.streetThrownItems || [],
             beggarPickedItems: data.beggarPickedItems || [],
         });
@@ -915,12 +915,8 @@
         setText('toiletSellerHint', `近14日成交卖家，当前活跃卖家 ${formatNumber(s.active_seller_count)}`);
         setText('toiletStaleListings', formatNumber(s.stale_listing_count));
         setText('toiletStaleHint', `道具 ${formatNumber(s.stale_item_quantity)}，金钱内容 ${formatNumber(s.stale_money_quantity)}，占比 ${formatPercent(s.stale_rate)}`);
-        setText('toiletAvgSaleMinutes', formatDurationMinutes(s.avg_sale_minutes));
-        setText('toiletAvgSaleHint', `中位数 ${formatDurationMinutes(s.median_sale_minutes)}`);
-        setText('toiletStreetPickupCount', formatNumber(s.street_pickup_count));
-        setText('toiletStreetPickupHint', `道具 ${formatNumber(s.street_pickup_item_quantity)}，金钱内容 ${formatNumber(s.street_pickup_money_quantity)}，大街待捡 ${formatNumber(s.street_available_count)} 单`);
-        setText('toiletDownrankExposureCount', formatNumber(s.downrank_exposure_count));
-        setText('toiletDownrankExposureHint', `涉及 ${formatNumber(s.downrank_listing_count)} 个挂单、${formatNumber(s.downrank_hospital_count)} 家医院，已归零 ${formatNumber(s.zero_rated_exposure_count)}`);
+        setText('toiletDownrankListingCount', formatNumber(s.downrank_listing_count));
+        setText('toiletDownrankListingHint', `来自 ${formatNumber(s.downrank_seller_hospital_count)} 家卖家医院，归零 ${formatNumber(s.zero_rated_listing_count)} 条，涉及 ${formatNumber(s.zero_rated_seller_hospital_count)} 家医院`);
         setText('toiletStreetThrownCount', formatNumber(s.street_thrown_count));
         setText('toiletStreetThrownHint', `道具 ${formatNumber(s.street_thrown_item_quantity)}，金钱内容 ${formatNumber(s.street_thrown_money_quantity)}，来源医院 ${formatNumber(s.street_source_hospital_count)}`);
         setText('toiletBeggarPickedCount', formatNumber(s.beggar_picked_count));
@@ -953,15 +949,17 @@
         renderSimpleRows('toiletBuyerRows', data.buyerLeaderboard || [], [
             'hospital_id', 'hospital_name', 'director_name', 'purchase_count', 'purchased_quantity', 'money_amount', 'ingot_amount'
         ]);
-        renderSimpleRows('toiletDownrankedItemRows', data.downrankedItems || [], [
-            'item_id', 'item_name', 'content_type', 'active_listing_count', 'downranked_pair_count',
-            'half_weight_pair_count', 'quarter_weight_pair_count', 'zero_rated_pair_count',
-            'affected_hospital_count', 'archived_downranked_pair_count', 'latest_recorded_at'
+        renderSimpleRows('toiletDownrankedListingRows', data.downrankedListings || [], [
+            'listing_id', 'item_id', 'item_name', 'content_type', 'quantity',
+            'seller_hospital_id', 'seller_hospital_name', 'seller_director_name',
+            'lowest_status', 'first_zero_rated_at', 'listed_at'
         ], {
             content_type: value => toiletContentTypeLabel(value),
-            zero_rated_pair_count: value => Number(value || 0) > 0
-                ? `<span class="pill red">${formatNumber(value)}</span>`
-                : '<span class="pill green">0</span>',
+            lowest_status: value => value === 'ZERO'
+                ? '<span class="pill red">归零</span>'
+                : value === 'QUARTER'
+                    ? '<span class="pill yellow">四分之一</span>'
+                    : '<span class="pill">二分之一</span>',
         });
         renderSimpleRows('toiletStreetThrownItemRows', data.streetThrownItems || [], [
             'item_id', 'item_name', 'content_type', 'thrown_record_count', 'thrown_quantity',
