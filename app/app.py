@@ -2762,6 +2762,14 @@ def load_toilet_market_stats_from_prod():
                    coalesce(l.item_name, '金钱') as item_name,
                    coalesce(l.content_type::text, 'ITEM') as content_type,
                    coalesce(l.quantity, 1) as quantity,
+                   coalesce(l.price, 0) as price,
+                   coalesce(l.currency_type::text, 'MONEY') as currency_type,
+                   round(coalesce(l.price, 0)::numeric / nullif(coalesce(l.quantity, 1), 0), 6) as unit_price,
+                   case
+                       when l.content_type = 'MONEY' and l.currency_type = 'INGOT' and l.price > 0
+                           then round(l.quantity::numeric / l.price, 2)
+                       else null
+                   end as money_per_ingot,
                    l.seller_hospital_id,
                    coalesce(h.hospital_name, '') as seller_hospital_name,
                    coalesce(h.director_name, '') as seller_director_name,
