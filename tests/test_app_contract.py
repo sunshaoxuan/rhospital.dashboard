@@ -106,6 +106,16 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("plotTitleAlignment: {enabled: true}", html)
         self.assertIn("--chart-plot-left", html)
 
+    def test_dashboard_tables_scroll_instead_of_overflowing_panels(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        table_scroll_rule = re.search(r"\.table-scroll\s*\{([^}]*)\}", html)
+        self.assertIsNotNone(table_scroll_rule)
+        self.assertIn("overflow-x: auto;", table_scroll_rule.group(1))
+        self.assertNotIn("overflow-x: visible;", table_scroll_rule.group(1))
+
     def test_login_page_uses_light_operational_style(self):
         client = app.test_client()
         response = client.get("/auth/login")
