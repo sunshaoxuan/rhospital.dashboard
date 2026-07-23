@@ -95,6 +95,17 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("--chart-grid", html)
         self.assertNotIn("radial-gradient", html)
 
+    def test_item_bar_chart_titles_align_with_plot_area(self):
+        client = app.test_client()
+        response = client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(html.count('class="chart-plot-title"'), 2)
+        self.assertIn("id: 'plotTitleAlignment'", html)
+        self.assertIn("chart.chartArea.left", html)
+        self.assertIn("plotTitleAlignment: {enabled: true}", html)
+        self.assertIn("--chart-plot-left", html)
+
     def test_login_page_uses_light_operational_style(self):
         client = app.test_client()
         response = client.get("/auth/login")

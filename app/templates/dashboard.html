@@ -136,6 +136,7 @@
         .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; }
         .panel { padding: 16px; min-height: 340px; }
         .panel h2 { margin: 0 0 14px; font-size: 17px; letter-spacing: 0; }
+        .panel h2.chart-plot-title { margin-left: var(--chart-plot-left, 0px); }
         .chart-box { position: relative; width: 100%; height: 260px; max-height: 260px; overflow: hidden; }
         .chart-box canvas { display: block; width: 100% !important; height: 260px !important; max-height: 260px !important; }
         .wide { grid-column: 1 / -1; }
@@ -371,12 +372,12 @@
             <div class="panel"><h2>最近10周元宝消耗总量</h2><div class="chart-box"><canvas id="weeklyYuanbaoSpendChart"></canvas></div><div class="note" id="weeklyYuanbaoSpendNote"></div></div>
             <div class="panel"><h2>最近10周元宝购入量</h2><div class="chart-box"><canvas id="weeklyYuanbaoPurchaseChart"></canvas></div><div class="note" id="weeklyYuanbaoPurchaseNote"></div></div>
             <div class="panel">
-                <h2>近14日道具购买 Top 12</h2>
+                <h2 class="chart-plot-title">近14日道具购买 Top 12</h2>
                 <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
                 <div class="table-scroll"><table><thead><tr><th>道具</th><th>购买次数</th><th>数量</th><th>消耗元宝</th></tr></thead><tbody id="itemPurchaseRows"></tbody></table></div>
             </div>
             <div class="panel">
-                <h2>近14日道具使用 Top 12</h2>
+                <h2 class="chart-plot-title">近14日道具使用 Top 12</h2>
                 <div class="chart-box"><canvas id="itemUseChart"></canvas></div>
                 <div class="table-scroll"><table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table></div>
             </div>
@@ -578,6 +579,16 @@
 <script>
     const charts = {};
     const renderState = {};
+    const plotTitleAlignmentPlugin = {
+        id: 'plotTitleAlignment',
+        afterLayout(chart, _args, options) {
+            if (!options.enabled || !chart.chartArea) return;
+            const title = chart.canvas.closest('.panel')?.querySelector('.chart-plot-title');
+            if (!title) return;
+            title.style.setProperty('--chart-plot-left', `${Math.round(chart.chartArea.left)}px`);
+        }
+    };
+    Chart.register(plotTitleAlignmentPlugin);
     const PAGE_KEYS = ['overall', 'specialClinic', 'broker', 'toiletMarket'];
     const PAGE_LABELS = {overall: '运营总览', specialClinic: '特需门诊', broker: '医托拉人', toiletMarket: '跳蚤市场'};
     const pageData = {overall: null, broker: null, toiletMarket: null};
@@ -1119,14 +1130,14 @@
         upsertChart('itemPurchaseChart', 'bar', 'itemPurchaseChart', {
             labels: rows.map(row => row.item_name),
             datasets: [{label: '购买数量', data: rows.map(row => row.quantity), backgroundColor: 'rgba(72, 213, 151, 0.62)'}]
-        }, {indexAxis: 'y'});
+        }, {indexAxis: 'y', plugins: {plotTitleAlignment: {enabled: true}}});
     }
 
     function renderItemUseChart(rows) {
         upsertChart('itemUseChart', 'bar', 'itemUseChart', {
             labels: rows.map(row => row.item_name),
             datasets: [{label: '使用次数', data: rows.map(row => row.quantity), backgroundColor: 'rgba(184, 152, 255, 0.62)'}]
-        }, {indexAxis: 'y'});
+        }, {indexAxis: 'y', plugins: {plotTitleAlignment: {enabled: true}}});
     }
 
     function getSpecialClinicPages(data) {
