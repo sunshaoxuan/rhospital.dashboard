@@ -253,6 +253,47 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("old_value > new_value", source)
         self.assertIn("coalesce(sum(coalesce(yuanbao_amount, 0)), 0) as yuanbao_purchased", source)
 
+    def test_daily_paying_hospitals_are_grouped_for_latest_seven_days(self):
+        source = Path("app/app.py").read_text(encoding="utf-8")
+
+        self.assertIn("load_daily_paying_hospitals", source)
+        self.assertIn('select \'Stripe\' as channel, hospital_id', source)
+        self.assertIn('select \'Paddle\' as channel, hospital_id', source)
+        self.assertIn('select \'Steam\' as channel, hospital_id', source)
+        self.assertIn("where status = 'COMPLETED' and delivered is true", source)
+        self.assertIn("PAYING_HOSPITAL_WINDOW_DAYS - 1", source)
+        self.assertIn("left join t_hospitals h on h.id = o.hospital_id", source)
+
+    def test_daily_paying_hospital_summary_keeps_currencies_separate(self):
+        result = app_module.summarize_daily_paying_hospitals([
+            {"day": "2026-07-23", "hospital_id": 1, "currency": "cny", "amount": 12.5, "orders": 2},
+            {"day": "2026-07-23", "hospital_id": 1, "currency": "cny", "amount": 5.0, "orders": 1},
+            {"day": "2026-07-22", "hospital_id": 2, "currency": "usd", "amount": 8.0, "orders": 1},
+        ])
+
+        self.assertEqual(result["windowDays"], 7)
+        self.assertEqual(result["hospitalCount"], 2)
+        self.assertEqual(result["orderCount"], 4)
+        self.assertEqual(result["currencyTotals"], [
+            {"currency": "cny", "amount": 17.5},
+            {"currency": "usd", "amount": 8.0},
+        ])
+        self.assertEqual(result["dailySummary"], [
+            {"day": "2026-07-23", "currency": "cny", "amount": 17.5, "orders": 3, "hospital_count": 1},
+            {"day": "2026-07-22", "currency": "usd", "amount": 8.0, "orders": 1, "hospital_count": 1},
+        ])
+
+    def test_dashboard_renders_daily_paying_hospital_list_and_summary(self):
+        html = app.test_client().get("/").get_data(as_text=True)
+
+        self.assertIn("最近 7 日每日氪金医院", html)
+        self.assertIn('id="payingHospitalSummaryRows"', html)
+        self.assertIn('id="payingHospitalRows"', html)
+        self.assertIn("renderPayingHospitals", html)
+        self.assertIn("paying-hospital-scroll", html)
+        self.assertIn(".paying-hospital-grid > div { min-width: 0; }", html)
+        self.assertIn("同一医院同日同渠道同币种合并展示", html)
+
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()
         response = client.get("/")

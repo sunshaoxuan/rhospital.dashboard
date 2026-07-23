@@ -224,6 +224,19 @@
         }
         .table-scroll.bounded-table { max-height: 720px; overflow: auto; }
         .bounded-table thead { position: sticky; top: 0; z-index: 1; }
+        .paying-hospital-panel { min-height: 0; }
+        .paying-hospital-metrics { display: grid; grid-template-columns: 1.4fr repeat(2, minmax(140px, 0.6fr)); gap: 10px; margin-bottom: 16px; }
+        .paying-hospital-metric { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); padding: 12px 14px; }
+        .paying-hospital-metric .label { color: var(--muted); font-size: 12px; }
+        .paying-hospital-metric .value { margin-top: 6px; color: var(--text); font-size: 20px; font-weight: 760; line-height: 1.35; }
+        .paying-hospital-grid { display: grid; grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr); gap: 16px; align-items: start; }
+        .paying-hospital-grid > div { min-width: 0; }
+        .paying-hospital-grid h3 { margin: 0 0 10px; font-size: 14px; }
+        .paying-hospital-scroll { max-height: 430px; overflow: auto; border: 1px solid var(--line); }
+        .paying-hospital-scroll thead { position: sticky; top: 0; z-index: 1; }
+        .paying-summary-table { min-width: 380px; }
+        .hospital-cell { display: grid; gap: 3px; min-width: 160px; }
+        .hospital-cell small { color: var(--muted); font-size: 11px; }
         table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
         .purchase-grid table { min-width: 680px; }
         .modal table { min-width: 760px; }
@@ -288,6 +301,7 @@
             .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
             .grid { grid-template-columns: 1fr; }
             .purchase-grid { grid-template-columns: 1fr; }
+            .paying-hospital-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 680px) {
             .shell { width: 100%; padding: 14px 12px 24px; }
@@ -315,6 +329,7 @@
             .clinic-inventory-row { padding: 12px; }
             .clinic-inventory-sections { grid-template-columns: 1fr; gap: 14px; }
             .clinic-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .paying-hospital-metrics { grid-template-columns: 1fr; }
             th, td { padding: 9px 8px; font-size: 12px; }
             .table-scroll { overflow-x: auto; overflow-y: visible; }
             .wide-clinic-table table { min-width: 1160px; }
@@ -371,6 +386,29 @@
             <div class="panel"><h2>元宝消耗统计，按小时</h2><div class="chart-box"><canvas id="yuanbaoSpendChart"></canvas></div><div class="note" id="yuanbaoSpendNote"></div></div>
             <div class="panel"><h2>最近10周元宝消耗总量</h2><div class="chart-box"><canvas id="weeklyYuanbaoSpendChart"></canvas></div><div class="note" id="weeklyYuanbaoSpendNote"></div></div>
             <div class="panel"><h2>最近10周元宝购入量</h2><div class="chart-box"><canvas id="weeklyYuanbaoPurchaseChart"></canvas></div><div class="note" id="weeklyYuanbaoPurchaseNote"></div></div>
+            <div class="panel wide paying-hospital-panel">
+                <h2>最近 7 日每日氪金医院</h2>
+                <div class="paying-hospital-metrics">
+                    <div class="paying-hospital-metric"><div class="label">7 日总金额</div><div class="value" id="payingHospitalAmountTotal">-</div></div>
+                    <div class="paying-hospital-metric"><div class="label">付费医院</div><div class="value" id="payingHospitalCountTotal">-</div></div>
+                    <div class="paying-hospital-metric"><div class="label">支付笔数</div><div class="value" id="payingHospitalOrderTotal">-</div></div>
+                </div>
+                <div class="paying-hospital-grid">
+                    <div>
+                        <h3>每日汇总</h3>
+                        <div class="table-scroll paying-hospital-scroll">
+                            <table class="paying-summary-table"><thead><tr><th>日期</th><th>金额</th><th>医院</th><th>笔数</th></tr></thead><tbody id="payingHospitalSummaryRows"></tbody></table>
+                        </div>
+                    </div>
+                    <div>
+                        <h3>医院明细</h3>
+                        <div class="table-scroll paying-hospital-scroll">
+                            <table><thead><tr><th>日期</th><th>医院</th><th>渠道</th><th>金额</th></tr></thead><tbody id="payingHospitalRows"></tbody></table>
+                        </div>
+                    </div>
+                </div>
+                <div class="note">按看板时区滚动统计今天及前 6 天，仅包含已完成支付；同一医院同日同渠道同币种合并展示。</div>
+            </div>
             <div class="panel">
                 <h2 class="chart-plot-title">近14日道具购买 Top 12</h2>
                 <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
@@ -802,6 +840,7 @@
         const overallSignature = stableStringify({
             summary: data.summary || {}, note: data.note || '', zoneId: data.zoneId || '',
             onlineBuckets: data.onlineBuckets || [], dailyRecharge: data.dailyRecharge || [],
+            payingHospitals: data.payingHospitals || {},
             dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [], hourlyYuanbaoSpending: data.hourlyYuanbaoSpending || [],
             weeklyYuanbaoSpending: data.weeklyYuanbaoSpending || [],
             weeklyYuanbaoPurchases: data.weeklyYuanbaoPurchases || [],
@@ -823,6 +862,7 @@
         setText('yuanbaoSpendNote', '近14日按小时统计，仅统计元宝减少日志。');
         setText('weeklyYuanbaoSpendNote', '按周一至周日滚动最近10周统计，仅统计元宝减少日志。');
         setText('weeklyYuanbaoPurchaseNote', '按周一至周日滚动最近10周统计，购入量来自已完成支付订单的元宝数量。');
+        renderPayingHospitals(data.payingHospitals || {});
 
         renderOnlineChart(data.onlineBuckets || []);
         renderRechargeChart(data.dailyRecharge || []);
@@ -1091,6 +1131,21 @@
         upsertChart('yuanbaoSpendChart', 'bar', 'yuanbaoSpendChart', {
             labels: rows.map(row => row.label),
             datasets: [{label: '消耗元宝', data: rows.map(row => Number(row.yuanbao_spent || 0)), backgroundColor: 'rgba(255, 209, 102, 0.72)'}]
+        });
+    }
+
+    function renderPayingHospitals(data) {
+        const totals = data.currencyTotals || [];
+        setText('payingHospitalAmountTotal', totals.length ? totals.map(row => formatCurrencyAmount(row.amount, row.currency)).join(' / ') : '0.00');
+        setText('payingHospitalCountTotal', formatNumber(data.hospitalCount));
+        setText('payingHospitalOrderTotal', formatNumber(data.orderCount));
+        renderSimpleRows('payingHospitalSummaryRows', data.dailySummary || [], ['day', 'amount', 'hospital_count', 'orders'], {
+            amount: (value, row) => escapeHtml(formatCurrencyAmount(value, row.currency)),
+        });
+        renderSimpleRows('payingHospitalRows', data.rows || [], ['day', 'hospital_id', 'channel', 'amount'], {
+            hospital_id: (value, row) => `<div class="hospital-cell"><span>${escapeHtml(row.hospital_name || '未命名医院')}</span><small>ID ${escapeHtml(value ?? '-')}</small></div>`,
+            channel: value => `<span class="pill">${escapeHtml(value || '-')}</span>`,
+            amount: (value, row) => escapeHtml(formatCurrencyAmount(value, row.currency)),
         });
     }
 
@@ -1635,6 +1690,14 @@
     }
     function formatNumber(value) { return Number(value || 0).toLocaleString('zh-CN'); }
     function formatMoney(value) { return Number(value || 0).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+    function formatCurrencyAmount(value, currency) {
+        const code = String(currency || 'unknown').toUpperCase();
+        try {
+            return new Intl.NumberFormat('zh-CN', {style: 'currency', currency: code}).format(Number(value || 0));
+        } catch (_) {
+            return `${code} ${formatMoney(value)}`;
+        }
+    }
     function formatPercent(value) { return `${formatMoney(value)}%`; }
     function formatDurationMinutes(value) {
         const minutes = Number(value || 0);

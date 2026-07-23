@@ -60,6 +60,7 @@ AUTH_ALLOWED_EMAILS = {
 }
 AUTH_PUBLIC_ENDPOINTS = {"healthz", "favicon", "login", "firebase_login"}
 TOILET_MARKET_STALE_HOURS = 48
+PAYING_HOSPITAL_WINDOW_DAYS = 7
 FIREBASE_PROJECT_ID = os.getenv("OPS_DASHBOARD_FIREBASE_PROJECT_ID", "r-hospital-c8069").strip()
 FIREBASE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
 FIREBASE_WEB_CONFIG = {
@@ -704,6 +705,7 @@ def load_stats_from_prod():
                 (ZONE_ID, ZONE_ID, ZONE_ID),
             ),
             "dailyRecharge": load_daily_recharge(conn),
+            "payingHospitals": load_daily_paying_hospitals(conn),
             "hourlyYuanbaoSpending": load_hourly_yuanbao_spending(conn),
             "weeklyYuanbaoSpending": load_weekly_yuanbao_spending(conn),
             "weeklyYuanbaoPurchases": load_weekly_yuanbao_purchases(conn),
@@ -739,6 +741,109 @@ def load_daily_recharge(conn):
     for row in rows:
         row["amount"] = major_amount(row.pop("amount_minor", 0))
     return rows
+
+
+def summarize_daily_paying_hospitals(rows):
+    daily = {}
+    currency_totals = {}
+    hospital_ids = set()
+    order_count = 0
+
+    for row in rows:
+        day = str(row.get("day") or "")
+        currency = str(row.get("currency") or "unknown").lower()
+        amount = float(row.get("amount") or 0)
+        orders = int(row.get("orders") or 0)
+        hospital_id = row.get("hospital_id")
+        if hospital_id is not None:
+            hospital_ids.add(hospital_id)
+        order_count += orders
+
+        daily_key = (day, currency)
+        daily_row = daily.setdefault(daily_key, {
+            "day": day,
+            "currency": currency,
+            "amount": 0.0,
+            "orders": 0,
+            "hospital_ids": set(),
+        })
+        daily_row["amount"] += amount
+        daily_row["orders"] += orders
+        if hospital_id is not None:
+            daily_row["hospital_ids"].add(hospital_id)
+
+        total_row = currency_totals.setdefault(currency, {
+            "currency": currency,
+            "amount": 0.0,
+        })
+        total_row["amount"] += amount
+
+    daily_summary = []
+    for row in daily.values():
+        daily_summary.append({
+            "day": row["day"],
+            "currency": row["currency"],
+            "amount": round(row["amount"], 2),
+            "orders": row["orders"],
+            "hospital_count": len(row["hospital_ids"]),
+        })
+
+    return {
+        "windowDays": PAYING_HOSPITAL_WINDOW_DAYS,
+        "hospitalCount": len(hospital_ids),
+        "orderCount": order_count,
+        "currencyTotals": sorted(
+            (
+                {"currency": row["currency"], "amount": round(row["amount"], 2)}
+                for row in currency_totals.values()
+            ),
+            key=lambda row: row["currency"],
+        ),
+        "dailySummary": sorted(
+            daily_summary,
+            key=lambda row: (row["day"], row["currency"]),
+            reverse=True,
+        ),
+        "rows": rows,
+    }
+
+
+def load_daily_paying_hospitals(conn):
+    rows = query_list(
+        conn,
+        """
+        with orders as (
+            select 'Stripe' as channel, hospital_id, update_time, amount, currency
+            from t_payment_orders
+            where status = 'COMPLETED'
+            union all
+            select 'Paddle' as channel, hospital_id, update_time, amount, currency
+            from t_paddle_payment_orders
+            where status = 'COMPLETED'
+            union all
+            select 'Steam' as channel, hospital_id, update_time, amount, currency
+            from t_steam_payment_orders
+            where status = 'COMPLETED' and delivered is true
+        )
+        select ((o.update_time at time zone 'UTC' at time zone %s)::date)::text as day,
+               o.hospital_id,
+               coalesce(h.hospital_name, '') as hospital_name,
+               o.channel,
+               lower(coalesce(o.currency, 'unknown')) as currency,
+               count(*) as orders,
+               coalesce(sum(o.amount), 0) as amount_minor
+        from orders o
+        left join t_hospitals h on h.id = o.hospital_id
+        where (o.update_time at time zone 'UTC' at time zone %s)::date
+              >= (now() at time zone %s)::date - %s
+        group by 1, 2, 3, 4, 5
+        order by day desc, amount_minor desc, o.hospital_id desc, o.channel
+        """,
+        (ZONE_ID, ZONE_ID, ZONE_ID, PAYING_HOSPITAL_WINDOW_DAYS - 1),
+    )
+    for row in rows:
+        row["amount"] = major_amount(row.pop("amount_minor", 0))
+    return summarize_daily_paying_hospitals(rows)
 
 
 def load_hourly_yuanbao_spending(conn):
@@ -2153,6 +2258,14 @@ def load_unavailable_stats(error: Exception):
         "summary": summary,
         "onlineBuckets": [],
         "dailyRecharge": [],
+        "payingHospitals": {
+            "windowDays": PAYING_HOSPITAL_WINDOW_DAYS,
+            "hospitalCount": 0,
+            "orderCount": 0,
+            "currencyTotals": [],
+            "dailySummary": [],
+            "rows": [],
+        },
         "dailyActive": [],
         "dailyRegistrations": [],
         "hourlyYuanbaoSpending": [],
