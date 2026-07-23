@@ -263,6 +263,8 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("where status = 'COMPLETED' and delivered is true", source)
         self.assertIn("PAYING_HOSPITAL_WINDOW_DAYS - 1", source)
         self.assertIn("left join t_hospitals h on h.id = o.hospital_id", source)
+        self.assertIn("to_char(max(o.update_time)", source)
+        self.assertIn("order by max(o.update_time) desc", source)
 
     def test_daily_paying_hospital_summary_keeps_currencies_separate(self):
         result = app_module.summarize_daily_paying_hospitals([
@@ -290,9 +292,17 @@ class AppContractTest(unittest.TestCase):
         self.assertIn('id="payingHospitalSummaryRows"', html)
         self.assertIn('id="payingHospitalRows"', html)
         self.assertIn("renderPayingHospitals", html)
+        self.assertIn("renderPayingHospitalSummaryRows", html)
+        self.assertIn("renderPayingHospitalDetailRows", html)
+        self.assertIn("selectPayingHospitalDay", html)
+        self.assertIn("payingHospitalState", html)
+        self.assertIn("dataset.payingDay", html)
         self.assertIn("paying-hospital-scroll", html)
+        self.assertIn("height: 430px; max-height: 430px", html)
+        self.assertIn("height: auto; min-height: 220px; max-height: 430px", html)
         self.assertIn(".paying-hospital-grid > div { min-width: 0; }", html)
-        self.assertIn("同一医院同日同渠道同币种合并展示", html)
+        self.assertIn("最近支付时间", html)
+        self.assertIn("点击左侧日期筛选右侧医院明细", html)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()

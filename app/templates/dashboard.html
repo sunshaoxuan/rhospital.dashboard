@@ -232,9 +232,14 @@
         .paying-hospital-grid { display: grid; grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr); gap: 16px; align-items: start; }
         .paying-hospital-grid > div { min-width: 0; }
         .paying-hospital-grid h3 { margin: 0 0 10px; font-size: 14px; }
-        .paying-hospital-scroll { max-height: 430px; overflow: auto; border: 1px solid var(--line); }
+        .paying-hospital-scroll { height: 430px; max-height: 430px; overflow: auto; border: 1px solid var(--line); }
         .paying-hospital-scroll thead { position: sticky; top: 0; z-index: 1; }
         .paying-summary-table { min-width: 380px; }
+        .paying-summary-row { cursor: pointer; }
+        .paying-summary-row:hover td { background: var(--teal-soft); }
+        .paying-summary-row.is-selected td { background: var(--primary-soft); }
+        .paying-summary-row.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--primary); font-weight: 760; }
+        .paying-summary-row:focus-visible { outline: 3px solid rgba(7, 156, 156, 0.24); outline-offset: -3px; }
         .hospital-cell { display: grid; gap: 3px; min-width: 160px; }
         .hospital-cell small { color: var(--muted); font-size: 11px; }
         table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
@@ -302,6 +307,7 @@
             .grid { grid-template-columns: 1fr; }
             .purchase-grid { grid-template-columns: 1fr; }
             .paying-hospital-grid { grid-template-columns: 1fr; }
+            .paying-hospital-scroll { height: auto; min-height: 220px; max-height: 430px; }
         }
         @media (max-width: 680px) {
             .shell { width: 100%; padding: 14px 12px 24px; }
@@ -401,13 +407,13 @@
                         </div>
                     </div>
                     <div>
-                        <h3>医院明细</h3>
+                        <h3 id="payingHospitalDetailTitle">医院明细</h3>
                         <div class="table-scroll paying-hospital-scroll">
-                            <table><thead><tr><th>日期</th><th>医院</th><th>渠道</th><th>金额</th></tr></thead><tbody id="payingHospitalRows"></tbody></table>
+                            <table><thead><tr><th>最近支付时间</th><th>医院</th><th>渠道</th><th>金额</th></tr></thead><tbody id="payingHospitalRows"></tbody></table>
                         </div>
                     </div>
                 </div>
-                <div class="note">按看板时区滚动统计今天及前 6 天，仅包含已完成支付；同一医院同日同渠道同币种合并展示。</div>
+                <div class="note">按看板时区滚动统计今天及前 6 天，仅包含已完成支付；点击左侧日期筛选右侧医院明细，同一医院同日同渠道同币种合并，并按最近支付时间倒序展示。</div>
             </div>
             <div class="panel">
                 <h2 class="chart-plot-title">近14日道具购买 Top 12</h2>
@@ -634,6 +640,7 @@
     let currentPage = 'overall';
     let statTableRequestId = 0;
     const statTableState = {tab: 'items', page: 1, pageSize: 20, total: 0};
+    const payingHospitalState = {data: null, selectedDay: null};
     const specialClinicState = {data: null, selectedWeekKey: null, latestWeekKey: null, userSelectedWeek: false, loadingWeekKey: null};
     const THEME_STORAGE_KEY = 'ops-dashboard-theme';
 
@@ -1135,14 +1142,57 @@
     }
 
     function renderPayingHospitals(data) {
+        payingHospitalState.data = data;
+        const days = [...new Set((data.dailySummary || []).map(row => row.day).filter(Boolean))].sort().reverse();
+        if (!days.includes(payingHospitalState.selectedDay)) payingHospitalState.selectedDay = days[0] || null;
         const totals = data.currencyTotals || [];
         setText('payingHospitalAmountTotal', totals.length ? totals.map(row => formatCurrencyAmount(row.amount, row.currency)).join(' / ') : '0.00');
         setText('payingHospitalCountTotal', formatNumber(data.hospitalCount));
         setText('payingHospitalOrderTotal', formatNumber(data.orderCount));
-        renderSimpleRows('payingHospitalSummaryRows', data.dailySummary || [], ['day', 'amount', 'hospital_count', 'orders'], {
-            amount: (value, row) => escapeHtml(formatCurrencyAmount(value, row.currency)),
+        renderPayingHospitalSummaryRows();
+        renderPayingHospitalDetailRows();
+    }
+
+    function selectPayingHospitalDay(day) {
+        if (!day || day === payingHospitalState.selectedDay) return;
+        payingHospitalState.selectedDay = day;
+        renderPayingHospitalSummaryRows();
+        renderPayingHospitalDetailRows();
+    }
+
+    function renderPayingHospitalSummaryRows() {
+        const tbody = document.getElementById('payingHospitalSummaryRows');
+        const rows = payingHospitalState.data?.dailySummary || [];
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="4">没有数据</td></tr>';
+            return;
+        }
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            const selected = row.day === payingHospitalState.selectedDay;
+            tr.className = `paying-summary-row${selected ? ' is-selected' : ''}`;
+            tr.dataset.payingDay = row.day || '';
+            tr.tabIndex = 0;
+            tr.setAttribute('aria-selected', selected ? 'true' : 'false');
+            tr.addEventListener('click', () => selectPayingHospitalDay(row.day));
+            tr.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                selectPayingHospitalDay(row.day);
+            });
+            tr.innerHTML = `<td>${escapeHtml(row.day || '-')}</td><td>${escapeHtml(formatCurrencyAmount(row.amount, row.currency))}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.orders)}</td>`;
+            tbody.appendChild(tr);
         });
-        renderSimpleRows('payingHospitalRows', data.rows || [], ['day', 'hospital_id', 'channel', 'amount'], {
+    }
+
+    function renderPayingHospitalDetailRows() {
+        const day = payingHospitalState.selectedDay;
+        const rows = (payingHospitalState.data?.rows || [])
+            .filter(row => row.day === day)
+            .sort((left, right) => String(right.last_payment_time || '').localeCompare(String(left.last_payment_time || '')));
+        setText('payingHospitalDetailTitle', day ? `医院明细 · ${day}` : '医院明细');
+        renderSimpleRows('payingHospitalRows', rows, ['last_payment_time', 'hospital_id', 'channel', 'amount'], {
             hospital_id: (value, row) => `<div class="hospital-cell"><span>${escapeHtml(row.hospital_name || '未命名医院')}</span><small>ID ${escapeHtml(value ?? '-')}</small></div>`,
             channel: value => `<span class="pill">${escapeHtml(value || '-')}</span>`,
             amount: (value, row) => escapeHtml(formatCurrencyAmount(value, row.currency)),

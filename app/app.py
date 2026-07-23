@@ -826,6 +826,7 @@ def load_daily_paying_hospitals(conn):
             where status = 'COMPLETED' and delivered is true
         )
         select ((o.update_time at time zone 'UTC' at time zone %s)::date)::text as day,
+               to_char(max(o.update_time) at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as last_payment_time,
                o.hospital_id,
                coalesce(h.hospital_name, '') as hospital_name,
                o.channel,
@@ -836,10 +837,10 @@ def load_daily_paying_hospitals(conn):
         left join t_hospitals h on h.id = o.hospital_id
         where (o.update_time at time zone 'UTC' at time zone %s)::date
               >= (now() at time zone %s)::date - %s
-        group by 1, 2, 3, 4, 5
-        order by day desc, amount_minor desc, o.hospital_id desc, o.channel
+        group by 1, 3, 4, 5, 6
+        order by max(o.update_time) desc, o.hospital_id desc, o.channel
         """,
-        (ZONE_ID, ZONE_ID, ZONE_ID, PAYING_HOSPITAL_WINDOW_DAYS - 1),
+        (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, PAYING_HOSPITAL_WINDOW_DAYS - 1),
     )
     for row in rows:
         row["amount"] = major_amount(row.pop("amount_minor", 0))
