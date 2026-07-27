@@ -715,6 +715,24 @@ def load_stats_from_prod():
         return stats
 
 
+def rolling_day_window(window_days, end_day=None):
+    last_day = end_day or now_in_zone().date()
+    return [(last_day - timedelta(days=offset)).isoformat() for offset in range(window_days)]
+
+
+def fill_daily_recharge_zero_days(rows, window_days=14, end_day=None):
+    filled = list(rows)
+    cny_days = {
+        str(row.get("day") or "")
+        for row in rows
+        if str(row.get("currency") or "unknown").lower() == "cny"
+    }
+    for day in rolling_day_window(window_days, end_day):
+        if day not in cny_days:
+            filled.append({"day": day, "currency": "cny", "orders": 0, "amount": 0.0, "yuanbao": 0})
+    return sorted(filled, key=lambda row: (row["day"], row["currency"]))
+
+
 def load_daily_recharge(conn):
     rows = query_list(
         conn,
@@ -740,10 +758,10 @@ def load_daily_recharge(conn):
     )
     for row in rows:
         row["amount"] = major_amount(row.pop("amount_minor", 0))
-    return rows
+    return fill_daily_recharge_zero_days(rows)
 
 
-def summarize_daily_paying_hospitals(rows):
+def summarize_daily_paying_hospitals(rows, end_day=None):
     daily = {}
     currency_totals = {}
     hospital_ids = set()
@@ -787,6 +805,16 @@ def summarize_daily_paying_hospitals(rows):
             "orders": row["orders"],
             "hospital_count": len(row["hospital_ids"]),
         })
+    covered_days = {row["day"] for row in daily_summary}
+    for day in rolling_day_window(PAYING_HOSPITAL_WINDOW_DAYS, end_day):
+        if day not in covered_days:
+            daily_summary.append({
+                "day": day,
+                "currency": "cny",
+                "amount": 0.0,
+                "orders": 0,
+                "hospital_count": 0,
+            })
 
     return {
         "windowDays": PAYING_HOSPITAL_WINDOW_DAYS,

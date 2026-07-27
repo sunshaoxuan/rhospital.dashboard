@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -281,7 +282,7 @@ class AppContractTest(unittest.TestCase):
             {"day": "2026-07-23", "hospital_id": 1, "currency": "cny", "amount": 12.5, "orders": 2},
             {"day": "2026-07-23", "hospital_id": 1, "currency": "cny", "amount": 5.0, "orders": 1},
             {"day": "2026-07-22", "hospital_id": 2, "currency": "usd", "amount": 8.0, "orders": 1},
-        ])
+        ], end_day=date(2026, 7, 23))
 
         self.assertEqual(result["windowDays"], 7)
         self.assertEqual(result["hospitalCount"], 2)
@@ -290,9 +291,26 @@ class AppContractTest(unittest.TestCase):
             {"currency": "cny", "amount": 17.5},
             {"currency": "usd", "amount": 8.0},
         ])
-        self.assertEqual(result["dailySummary"], [
+        self.assertEqual(result["dailySummary"][:2], [
             {"day": "2026-07-23", "currency": "cny", "amount": 17.5, "orders": 3, "hospital_count": 1},
             {"day": "2026-07-22", "currency": "usd", "amount": 8.0, "orders": 1, "hospital_count": 1},
+        ])
+        self.assertEqual(result["dailySummary"][2:], [
+            {"day": day, "currency": "cny", "amount": 0.0, "orders": 0, "hospital_count": 0}
+            for day in ["2026-07-21", "2026-07-20", "2026-07-19", "2026-07-18", "2026-07-17"]
+        ])
+
+    def test_daily_recharge_fills_zero_cny_days(self):
+        result = app_module.fill_daily_recharge_zero_days([
+            {"day": "2026-07-23", "currency": "cny", "orders": 2, "amount": 18.0, "yuanbao": 1000},
+            {"day": "2026-07-22", "currency": "usd", "orders": 1, "amount": 5.0, "yuanbao": 300},
+        ], window_days=3, end_day=date(2026, 7, 23))
+
+        self.assertEqual(result, [
+            {"day": "2026-07-21", "currency": "cny", "orders": 0, "amount": 0.0, "yuanbao": 0},
+            {"day": "2026-07-22", "currency": "cny", "orders": 0, "amount": 0.0, "yuanbao": 0},
+            {"day": "2026-07-22", "currency": "usd", "orders": 1, "amount": 5.0, "yuanbao": 300},
+            {"day": "2026-07-23", "currency": "cny", "orders": 2, "amount": 18.0, "yuanbao": 1000},
         ])
 
     def test_dashboard_renders_daily_paying_hospital_list_and_summary(self):
@@ -313,6 +331,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn(".paying-hospital-grid > div { min-width: 0; }", html)
         self.assertIn("最近支付时间", html)
         self.assertIn("点击左侧日期筛选右侧医院明细", html)
+        self.assertIn("收入为零的日期仍保留", html)
 
     def test_special_clinic_reward_charts_separate_items_and_resources(self):
         client = app.test_client()
