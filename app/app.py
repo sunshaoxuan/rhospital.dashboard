@@ -860,6 +860,11 @@ def load_daily_paying_hospitals(conn):
     return summarize_daily_paying_hospitals(rows)
 
 
+def is_platform_yuanbao_grant(reason):
+    text = str(reason or "").strip()
+    return any(marker in text for marker in ("补偿", "赠送", "礼包"))
+
+
 def describe_yuanbao_reason(reason):
     text = str(reason or "(未记录原因)").strip() or "(未记录原因)"
     if text.startswith("商店购买:"):
@@ -888,9 +893,10 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
     for row in reason_rows:
         gained = int(row.get("gained") or 0)
         spent = int(row.get("spent") or 0)
+        reason = str(row.get("reason") or "(未记录原因)")
         described = describe_yuanbao_reason(row.get("reason"))
         common = {
-            "reason": str(row.get("reason") or "(未记录原因)"),
+            "reason": reason,
             "point": described["point"],
             "category": described["category"],
             "event_count": int(row.get("event_count") or 0),
@@ -901,27 +907,36 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
         if spent > 0:
             consumption_points.append({**common, "consumption_type": described["consumption_type"], "spent": spent})
         if gained > 0:
-            gain_sources.append({**common, "gained": gained})
+            gain_sources.append({**common, "gained": gained, "is_platform_grant": is_platform_yuanbao_grant(reason)})
 
     consumption_points.sort(key=lambda row: (-row["spent"], row["point"]))
     gain_sources.sort(key=lambda row: (-row["gained"], row["point"]))
     total_spent = sum(int(row.get("spent") or 0) for row in monthly_rows)
     total_gained = sum(int(row.get("gained") or 0) for row in monthly_rows)
     total_purchased = sum(int(row.get("yuanbao_purchased") or 0) for row in monthly_rows)
+    total_platform_grants = sum(row["gained"] for row in gain_sources if row["is_platform_grant"])
+    total_gained_excluding_platform_grants = total_gained - total_platform_grants
     for row in consumption_points:
         row["share"] = round(row["spent"] * 100 / total_spent, 2) if total_spent else 0.0
     for row in gain_sources:
         row["share"] = round(row["gained"] * 100 / total_gained, 2) if total_gained else 0.0
+        row["share_excluding_platform_grants"] = (
+            round(row["gained"] * 100 / total_gained_excluding_platform_grants, 2)
+            if total_gained_excluding_platform_grants and not row["is_platform_grant"]
+            else 0.0
+        )
 
     first_spend_month = {row["point"]: row["first_month"] for row in consumption_points}
     monthly_reasons = {}
     for row in monthly_reason_rows:
         described = describe_yuanbao_reason(row.get("reason"))
+        reason = str(row.get("reason") or "(未记录原因)")
         monthly_reasons.setdefault(row.get("month") or "", []).append({
             "point": described["point"],
             "category": described["category"],
             "spent": int(row.get("spent") or 0),
             "gained": int(row.get("gained") or 0),
+            "is_platform_grant": is_platform_yuanbao_grant(reason),
         })
 
     enriched_months = []
@@ -930,40 +945,53 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
         reason_values = monthly_reasons.get(month, [])
         spend_values = sorted((value for value in reason_values if value["spent"] > 0), key=lambda value: -value["spent"])
         gain_values = sorted((value for value in reason_values if value["gained"] > 0), key=lambda value: -value["gained"])
+        non_grant_gain_values = [value for value in gain_values if not value["is_platform_grant"]]
         new_points = [value for value in spend_values if first_spend_month.get(value["point"]) == month][:2]
-        events = []
-        if new_points:
-            events.append({"kind": "new", "label": "新增消费点", "points": [value["point"] for value in new_points]})
-        if spend_values:
-            events.append({"kind": "spend", "label": "主要消耗", "points": [spend_values[0]["point"]], "amount": spend_values[0]["spent"]})
-        if gain_values:
-            events.append({"kind": "gain", "label": "主要增加", "points": [gain_values[0]["point"]], "amount": gain_values[0]["gained"]})
+        def build_events(selected_gain_values):
+            events = []
+            if new_points:
+                events.append({"kind": "new", "label": "新增消费点", "points": [value["point"] for value in new_points]})
+            if spend_values:
+                events.append({"kind": "spend", "label": "主要消耗", "points": [spend_values[0]["point"]], "amount": spend_values[0]["spent"]})
+            if selected_gain_values:
+                events.append({"kind": "gain", "label": "主要增加", "points": [selected_gain_values[0]["point"]], "amount": selected_gain_values[0]["gained"]})
+            return events
+
         gained = int(row.get("gained") or 0)
         spent = int(row.get("spent") or 0)
+        platform_grants = sum(value["gained"] for value in gain_values if value["is_platform_grant"])
+        gained_excluding_platform_grants = gained - platform_grants
         enriched_months.append({
             **row,
             "gained": gained,
+            "platform_grants": platform_grants,
+            "gained_excluding_platform_grants": gained_excluding_platform_grants,
             "spent": spent,
             "net_change": gained - spent,
+            "net_change_excluding_platform_grants": gained_excluding_platform_grants - spent,
             "yuanbao_purchased": int(row.get("yuanbao_purchased") or 0),
             "order_count": int(row.get("order_count") or 0),
             "event_count": int(row.get("event_count") or 0),
             "hospital_count": int(row.get("hospital_count") or 0),
-            "events": events,
+            "events": build_events(gain_values),
+            "events_excluding_platform_grants": build_events(non_grant_gain_values),
         })
 
     return {
         "generatedAt": now_in_zone().isoformat(),
         "zoneId": ZONE_ID,
-        "note": "增加和消耗来自元宝余额总账；其中购入只统计 Stripe 已完成订单和 Steam 已完成且发货订单。间接消耗指商店购买后再使用道具，其他明确扣减归为直接消耗。大事件由新增消费点和当月主导增减来源生成。",
+        "note": "增加和消耗来自元宝余额总账；其中购入只统计 Stripe 已完成订单和 Steam 已完成且发货订单。平台主动赠送识别包含补偿、赠送或礼包的增加原因；任务奖励、充值和玩家交易不归入主动赠送。间接消耗指商店购买后再使用道具，其他明确扣减归为直接消耗。大事件由新增消费点和当月主导增减来源生成。",
         "summary": {
             "firstMonth": enriched_months[0]["month"] if enriched_months else "",
             "lastMonth": enriched_months[-1]["month"] if enriched_months else "",
             "monthCount": len(enriched_months),
             "totalGained": total_gained,
+            "totalPlatformGrants": total_platform_grants,
+            "totalGainedExcludingPlatformGrants": total_gained_excluding_platform_grants,
             "totalPurchased": total_purchased,
             "totalSpent": total_spent,
             "netChange": total_gained - total_spent,
+            "netChangeExcludingPlatformGrants": total_gained_excluding_platform_grants - total_spent,
             "consumptionPointCount": len(consumption_points),
         },
         "monthly": enriched_months,

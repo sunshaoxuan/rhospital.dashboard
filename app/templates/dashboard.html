@@ -242,6 +242,20 @@
         .paying-summary-row:focus-visible { outline: 3px solid rgba(7, 156, 156, 0.24); outline-offset: -3px; }
         .hospital-cell { display: grid; gap: 3px; min-width: 160px; }
         .hospital-cell small { color: var(--muted); font-size: 11px; }
+        .yuanbao-filter-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+            padding: 12px 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+        }
+        .yuanbao-filter-check { display: inline-flex; align-items: center; gap: 9px; color: var(--text); font-weight: 730; cursor: pointer; }
+        .yuanbao-filter-check input { width: 17px; height: 17px; margin: 0; accent-color: var(--primary); }
+        .yuanbao-filter-hint { color: var(--muted); font-size: 12px; text-align: right; }
         .yuanbao-summary-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
         .yuanbao-chart-box { height: 340px; max-height: 340px; }
         .yuanbao-chart-box canvas { height: 340px !important; max-height: 340px !important; }
@@ -329,6 +343,8 @@
             .subtitle { margin-top: 6px; font-size: 12px; line-height: 1.5; }
             .toolbar { width: 100%; justify-content: space-between; gap: 10px; white-space: normal; }
             .toolbar span { min-width: 0; overflow-wrap: anywhere; }
+            .yuanbao-filter-bar { align-items: flex-start; flex-direction: column; gap: 8px; }
+            .yuanbao-filter-hint { text-align: left; }
             button { padding: 8px 10px; }
             .cards { grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
             .card { min-height: auto; padding: 12px; }
@@ -469,11 +485,18 @@
     </section>
 
     <section id="yuanbaoPage" class="page-section" hidden>
+        <div class="yuanbao-filter-bar">
+            <label class="yuanbao-filter-check" for="yuanbaoIncludePlatformGrants">
+                <input id="yuanbaoIncludePlatformGrants" type="checkbox" checked>
+                <span>包含平台主动赠送元宝</span>
+            </label>
+            <span class="yuanbao-filter-hint" id="yuanbaoPlatformGrantHint">读取平台赠送金额...</span>
+        </div>
         <section class="cards yuanbao-summary-grid">
-            <div class="card"><div class="label">累计增加元宝</div><div class="value" id="yuanbaoTotalGained">-</div><div class="hint">余额总账全部正向变化</div></div>
+            <div class="card"><div class="label">累计增加元宝</div><div class="value" id="yuanbaoTotalGained">-</div><div class="hint" id="yuanbaoTotalGainedHint">余额总账全部正向变化</div></div>
             <div class="card"><div class="label">其中付费购入</div><div class="value" id="yuanbaoTotalPurchased">-</div><div class="hint">Stripe 与 Steam 已完成订单</div></div>
             <div class="card"><div class="label">累计消耗元宝</div><div class="value" id="yuanbaoTotalSpent">-</div><div class="hint">余额总账全部负向变化</div></div>
-            <div class="card"><div class="label">总账净变化</div><div class="value" id="yuanbaoNetChange">-</div><div class="hint">累计增加减累计消耗</div></div>
+            <div class="card"><div class="label">总账净变化</div><div class="value" id="yuanbaoNetChange">-</div><div class="hint" id="yuanbaoNetChangeHint">累计增加减累计消耗</div></div>
             <div class="card"><div class="label">消费点</div><div class="value" id="yuanbaoPointCount">-</div><div class="hint">合并同一道具不同购买数量</div></div>
             <div class="card"><div class="label">覆盖月份</div><div class="value" id="yuanbaoMonthCount">-</div><div class="hint" id="yuanbaoMonthRange">-</div></div>
         </section>
@@ -492,8 +515,8 @@
                 <div class="table-scroll bounded-table yuanbao-point-table"><table><thead><tr><th>类型</th><th>类别</th><th>消费点</th><th>累计消耗</th><th>占比</th><th>记录数</th><th>医院数</th><th>首次月份</th><th>最近月份</th></tr></thead><tbody id="yuanbaoConsumptionRows"><tr><td colspan="9">读取中...</td></tr></tbody></table></div>
             </div>
             <div class="panel wide">
-                <h2>全部元宝增加来源</h2>
-                <div class="table-scroll bounded-table yuanbao-source-table"><table><thead><tr><th>增加来源</th><th>累计增加</th><th>占比</th><th>记录数</th><th>医院数</th><th>首次月份</th><th>最近月份</th></tr></thead><tbody id="yuanbaoGainRows"><tr><td colspan="7">读取中...</td></tr></tbody></table></div>
+                <h2 id="yuanbaoGainTitle">全部元宝增加来源</h2>
+                <div class="table-scroll bounded-table yuanbao-source-table"><table><thead><tr><th>来源类型</th><th>增加来源</th><th>累计增加</th><th>占比</th><th>记录数</th><th>医院数</th><th>首次月份</th><th>最近月份</th></tr></thead><tbody id="yuanbaoGainRows"><tr><td colspan="8">读取中...</td></tr></tbody></table></div>
             </div>
         </section>
     </section>
@@ -677,10 +700,23 @@
     const payingHospitalState = {data: null, selectedDay: null};
     const specialClinicState = {data: null, selectedWeekKey: null, latestWeekKey: null, userSelectedWeek: false, loadingWeekKey: null};
     const THEME_STORAGE_KEY = 'ops-dashboard-theme';
+    const YUANBAO_PLATFORM_GRANT_STORAGE_KEY = 'ops-dashboard-yuanbao-include-platform-grants';
+    const yuanbaoFilterState = {
+        includePlatformGrants: (() => {
+            try { return localStorage.getItem(YUANBAO_PLATFORM_GRANT_STORAGE_KEY) !== 'false'; } catch (_) { return true; }
+        })()
+    };
 
     syncThemeControl();
+    document.getElementById('yuanbaoIncludePlatformGrants').checked = yuanbaoFilterState.includePlatformGrants;
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
     document.getElementById('refreshBtn').addEventListener('click', () => refreshPage(currentPage, true));
+    document.getElementById('yuanbaoIncludePlatformGrants').addEventListener('change', event => {
+        yuanbaoFilterState.includePlatformGrants = event.target.checked;
+        try { localStorage.setItem(YUANBAO_PLATFORM_GRANT_STORAGE_KEY, String(event.target.checked)); } catch (_) { }
+        delete renderState.yuanbaoSignature;
+        if (pageData.yuanbao) renderYuanbaoStats(pageData.yuanbao);
+    });
     document.querySelectorAll('[data-page-tab]').forEach(button => {
         button.addEventListener('click', () => switchPage(button.dataset.pageTab));
     });
@@ -917,6 +953,7 @@
     }
 
     function renderYuanbaoStats(data) {
+        const includePlatformGrants = yuanbaoFilterState.includePlatformGrants;
         const signature = stableStringify({
             generatedAt: data.generatedAt,
             zoneId: data.zoneId,
@@ -925,6 +962,7 @@
             monthly: data.monthly || [],
             consumptionPoints: data.consumptionPoints || [],
             gainSources: data.gainSources || [],
+            includePlatformGrants,
         });
         if (renderState.yuanbaoSignature === signature) return;
         renderState.yuanbaoSignature = signature;
@@ -934,28 +972,56 @@
             error.style.display = 'block';
         }
         const summary = data.summary || {};
-        setText('yuanbaoTotalGained', formatNumber(summary.totalGained));
+        const totalPlatformGrants = Number(summary.totalPlatformGrants || 0);
+        const totalGained = includePlatformGrants
+            ? Number(summary.totalGained || 0)
+            : Number(summary.totalGainedExcludingPlatformGrants ?? Number(summary.totalGained || 0) - totalPlatformGrants);
+        const netChange = includePlatformGrants
+            ? Number(summary.netChange || 0)
+            : Number(summary.netChangeExcludingPlatformGrants ?? totalGained - Number(summary.totalSpent || 0));
+        const monthlyRows = (data.monthly || []).map(row => ({
+            ...row,
+            display_gained: includePlatformGrants
+                ? Number(row.gained || 0)
+                : Number(row.gained_excluding_platform_grants ?? Number(row.gained || 0) - Number(row.platform_grants || 0)),
+            display_net_change: includePlatformGrants
+                ? Number(row.net_change || 0)
+                : Number(row.net_change_excluding_platform_grants ?? Number(row.net_change || 0) - Number(row.platform_grants || 0)),
+            display_events: includePlatformGrants ? (row.events || []) : (row.events_excluding_platform_grants || row.events || []),
+        }));
+        const gainSources = (data.gainSources || [])
+            .filter(row => includePlatformGrants || !row.is_platform_grant)
+            .map(row => ({
+                ...row,
+                display_share: includePlatformGrants ? row.share : row.share_excluding_platform_grants,
+            }));
+        document.getElementById('yuanbaoIncludePlatformGrants').checked = includePlatformGrants;
+        setText('yuanbaoPlatformGrantHint', `平台主动赠送合计 ${formatNumber(totalPlatformGrants)} 元宝，当前${includePlatformGrants ? '计入' : '排除'}其影响`);
+        setText('yuanbaoTotalGained', formatNumber(totalGained));
+        setText('yuanbaoTotalGainedHint', includePlatformGrants ? `其中平台主动赠送 ${formatNumber(totalPlatformGrants)}` : `已排除平台主动赠送 ${formatNumber(totalPlatformGrants)}`);
         setText('yuanbaoTotalPurchased', formatNumber(summary.totalPurchased));
         setText('yuanbaoTotalSpent', formatNumber(summary.totalSpent));
-        setText('yuanbaoNetChange', formatSignedNumber(summary.netChange));
+        setText('yuanbaoNetChange', formatSignedNumber(netChange));
+        setText('yuanbaoNetChangeHint', includePlatformGrants ? '累计增加减累计消耗，包含平台赠送' : '累计增加减累计消耗，已排除平台赠送');
         setText('yuanbaoPointCount', formatNumber(summary.consumptionPointCount));
         setText('yuanbaoMonthCount', formatNumber(summary.monthCount));
         setText('yuanbaoMonthRange', summary.firstMonth && summary.lastMonth ? `${summary.firstMonth} 至 ${summary.lastMonth}` : '-');
-        setText('yuanbaoNote', data.note || '');
-        renderYuanbaoMonthlyChart(data.monthly || []);
-        renderYuanbaoMonthlyRows(data.monthly || []);
+        setText('yuanbaoNote', `${data.note || ''} 当前视图${includePlatformGrants ? '包含' : '排除'}平台主动赠送。`);
+        setText('yuanbaoGainTitle', includePlatformGrants ? '全部元宝增加来源' : '元宝增加来源，已排除平台主动赠送');
+        renderYuanbaoMonthlyChart(monthlyRows, includePlatformGrants);
+        renderYuanbaoMonthlyRows(monthlyRows);
         renderYuanbaoConsumptionRows(data.consumptionPoints || []);
-        renderYuanbaoGainRows(data.gainSources || []);
+        renderYuanbaoGainRows(gainSources);
     }
 
-    function renderYuanbaoMonthlyChart(rows) {
+    function renderYuanbaoMonthlyChart(rows, includePlatformGrants) {
         upsertChart('yuanbaoMonthlyChart', 'bar', 'yuanbaoMonthlyChart', {
             labels: rows.map(row => row.label || row.month),
             datasets: [
-                {label: '全部增加', data: rows.map(row => Number(row.gained || 0)), backgroundColor: 'rgba(72, 213, 151, 0.62)'},
+                {label: includePlatformGrants ? '全部增加' : '增加，已排除平台赠送', data: rows.map(row => row.display_gained), backgroundColor: 'rgba(72, 213, 151, 0.62)'},
                 {label: '全部消耗', data: rows.map(row => Number(row.spent || 0)), backgroundColor: 'rgba(255, 107, 134, 0.58)'},
                 {label: '其中付费购入', type: 'line', data: rows.map(row => Number(row.yuanbao_purchased || 0)), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.12)', tension: 0.3},
-                {label: '净变化', type: 'line', data: rows.map(row => Number(row.net_change || 0)), borderColor: '#ef6a32', backgroundColor: 'rgba(239, 106, 50, 0.1)', tension: 0.3},
+                {label: '净变化', type: 'line', data: rows.map(row => row.display_net_change), borderColor: '#ef6a32', backgroundColor: 'rgba(239, 106, 50, 0.1)', tension: 0.3},
             ]
         });
     }
@@ -969,12 +1035,12 @@
         }
         [...rows].reverse().forEach(row => {
             const tr = document.createElement('tr');
-            const netClass = Number(row.net_change || 0) >= 0 ? 'value-positive' : 'value-negative';
-            const events = (row.events || []).map(event => {
+            const netClass = Number(row.display_net_change || 0) >= 0 ? 'value-positive' : 'value-negative';
+            const events = (row.display_events || []).map(event => {
                 const amount = event.amount ? `，${formatNumber(event.amount)} 元宝` : '';
                 return `<div class="yuanbao-event"><strong>${escapeHtml(event.label)}</strong>：${escapeHtml((event.points || []).join('、'))}${amount}</div>`;
             }).join('') || '<div class="yuanbao-event">无明显事件</div>';
-            tr.innerHTML = `<td>${escapeHtml(row.label || row.month || '-')}</td><td class="value-positive">${formatNumber(row.gained)}</td><td>${formatNumber(row.yuanbao_purchased)}</td><td class="value-negative">${formatNumber(row.spent)}</td><td class="${netClass}">${formatSignedNumber(row.net_change)}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.event_count)}</td><td><div class="yuanbao-events">${events}</div></td>`;
+            tr.innerHTML = `<td>${escapeHtml(row.label || row.month || '-')}</td><td class="value-positive">${formatNumber(row.display_gained)}</td><td>${formatNumber(row.yuanbao_purchased)}</td><td class="value-negative">${formatNumber(row.spent)}</td><td class="${netClass}">${formatSignedNumber(row.display_net_change)}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.event_count)}</td><td><div class="yuanbao-events">${events}</div></td>`;
             tbody.appendChild(tr);
         });
     }
@@ -998,12 +1064,13 @@
         const tbody = document.getElementById('yuanbaoGainRows');
         tbody.innerHTML = '';
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="7">没有数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8">没有数据</td></tr>';
             return;
         }
         rows.forEach(row => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${escapeHtml(row.point || row.reason || '-')}</td><td class="value-positive">${formatNumber(row.gained)}</td><td>${formatPercent(row.share)}</td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.hospital_count)}</td><td>${escapeHtml(row.first_month || '-')}</td><td>${escapeHtml(row.last_month || '-')}</td>`;
+            const sourceType = row.is_platform_grant ? '<span class="pill yellow">平台赠送</span>' : '<span class="pill green">其他增加</span>';
+            tr.innerHTML = `<td>${sourceType}</td><td>${escapeHtml(row.point || row.reason || '-')}</td><td class="value-positive">${formatNumber(row.gained)}</td><td>${formatPercent(row.display_share)}</td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.hospital_count)}</td><td>${escapeHtml(row.first_month || '-')}</td><td>${escapeHtml(row.last_month || '-')}</td>`;
             tbody.appendChild(tr);
         });
     }
