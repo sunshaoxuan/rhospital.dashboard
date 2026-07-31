@@ -68,8 +68,9 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("付费确诊使用右轴", html)
         self.assertIn("yAxisID: 'paid'", html)
         self.assertIn("累计确诊", html)
-        self.assertIn("月度元宝增加与消耗", html)
+        self.assertIn("月度元宝新增、消耗与转移", html)
         self.assertIn('id="yuanbaoMonthlyChart"', html)
+        self.assertIn("非消耗转移", html)
         self.assertIn("全部直接与间接消费点", html)
         self.assertIn('id="yuanbaoConsumptionRows"', html)
         self.assertIn('id="yuanbaoIncludePlatformGrants"', html)
@@ -280,14 +281,14 @@ class AppContractTest(unittest.TestCase):
 
     def test_yuanbao_reason_classifies_shop_as_indirect_consumption(self):
         shop = app_module.describe_yuanbao_reason("商店购买: 可爱胶囊")
-        direct = app_module.describe_yuanbao_reason("公会捐献")
+        direct = app_module.describe_yuanbao_reason("疫区Boss组队")
 
         self.assertEqual(shop, {
             "point": "商店购买：可爱胶囊",
             "category": "商店购买",
             "consumption_type": "间接消耗",
         })
-        self.assertEqual(direct["category"], "公会")
+        self.assertEqual(direct["category"], "疫区 Boss")
         self.assertEqual(direct["consumption_type"], "直接消耗")
 
     def test_platform_yuanbao_grants_are_identified_from_auditable_reasons(self):
@@ -297,24 +298,38 @@ class AppContractTest(unittest.TestCase):
         self.assertFalse(app_module.is_platform_yuanbao_grant("充值"))
         self.assertFalse(app_module.is_platform_yuanbao_grant("厕所匿名交易出售"))
 
+    def test_yuanbao_transfer_reasons_are_excluded_from_consumption(self):
+        self.assertEqual(app_module.describe_yuanbao_transfer("厕所匿名交易购买"), {
+            "point": "卫生间匿名交易", "category": "市场转移", "direction": "out",
+        })
+        self.assertEqual(app_module.describe_yuanbao_transfer("厕所匿名交易出售")["direction"], "in")
+        self.assertEqual(app_module.describe_yuanbao_transfer("公会捐献")["category"], "公会转移")
+        self.assertIsNone(app_module.describe_yuanbao_transfer("商店购买: 可爱胶囊"))
+
     def test_yuanbao_stats_build_monthly_events_and_complete_points(self):
         payload = app_module.build_yuanbao_stats(
             [
-                {"month": "2026-01", "label": "2026年01月", "gained": 100, "spent": 40, "yuanbao_purchased": 60, "order_count": 2, "event_count": 5, "hospital_count": 3},
-                {"month": "2026-02", "label": "2026年02月", "gained": 30, "spent": 70, "yuanbao_purchased": 0, "order_count": 0, "event_count": 4, "hospital_count": 2},
+                {"month": "2026-01", "label": "2026年01月", "gained": 110, "spent": 50, "yuanbao_purchased": 60, "order_count": 2, "event_count": 7, "hospital_count": 3},
+                {"month": "2026-02", "label": "2026年02月", "gained": 30, "spent": 90, "yuanbao_purchased": 0, "order_count": 0, "event_count": 5, "hospital_count": 2},
             ],
             [
                 {"reason": "商店购买: 可爱胶囊", "gained": 0, "spent": 80, "event_count": 4, "hospital_count": 2, "first_month": "2026-01", "last_month": "2026-02"},
-                {"reason": "公会捐献", "gained": 0, "spent": 30, "event_count": 2, "hospital_count": 2, "first_month": "2026-02", "last_month": "2026-02"},
+                {"reason": "疫区Boss组队", "gained": 0, "spent": 30, "event_count": 2, "hospital_count": 2, "first_month": "2026-02", "last_month": "2026-02"},
                 {"reason": "充值", "gained": 50, "spent": 0, "event_count": 3, "hospital_count": 2, "first_month": "2026-01", "last_month": "2026-02"},
                 {"reason": "线路维护补偿：赠送80元宝", "gained": 80, "spent": 0, "event_count": 1, "hospital_count": 1, "first_month": "2026-01", "last_month": "2026-01"},
+                {"reason": "厕所匿名交易购买", "gained": 0, "spent": 10, "event_count": 1, "hospital_count": 1, "first_month": "2026-01", "last_month": "2026-01"},
+                {"reason": "厕所匿名交易出售", "gained": 10, "spent": 0, "event_count": 1, "hospital_count": 1, "first_month": "2026-01", "last_month": "2026-01"},
+                {"reason": "公会捐献", "gained": 0, "spent": 20, "event_count": 1, "hospital_count": 1, "first_month": "2026-02", "last_month": "2026-02"},
             ],
             [
                 {"month": "2026-01", "reason": "商店购买: 可爱胶囊", "gained": 0, "spent": 40},
                 {"month": "2026-01", "reason": "充值", "gained": 20, "spent": 0},
                 {"month": "2026-01", "reason": "线路维护补偿：赠送80元宝", "gained": 80, "spent": 0},
+                {"month": "2026-01", "reason": "厕所匿名交易购买", "gained": 0, "spent": 10},
+                {"month": "2026-01", "reason": "厕所匿名交易出售", "gained": 10, "spent": 0},
                 {"month": "2026-02", "reason": "商店购买: 可爱胶囊", "gained": 0, "spent": 40},
-                {"month": "2026-02", "reason": "公会捐献", "gained": 0, "spent": 30},
+                {"month": "2026-02", "reason": "疫区Boss组队", "gained": 0, "spent": 30},
+                {"month": "2026-02", "reason": "公会捐献", "gained": 0, "spent": 20},
                 {"month": "2026-02", "reason": "充值", "gained": 30, "spent": 0},
             ],
         )
@@ -328,23 +343,36 @@ class AppContractTest(unittest.TestCase):
             "totalGainedExcludingPlatformGrants": 50,
             "totalPurchased": 60,
             "totalSpent": 110,
+            "totalTransferredIn": 10,
+            "totalTransferredOut": 30,
+            "transferPointCount": 2,
             "netChange": 20,
             "netChangeExcludingPlatformGrants": -60,
             "consumptionPointCount": 2,
         })
         self.assertEqual([row["consumption_type"] for row in payload["consumptionPoints"]], ["间接消耗", "直接消耗"])
         self.assertEqual(payload["monthly"][0]["net_change"], 60)
+        self.assertEqual(payload["monthly"][0]["raw_gained"], 110)
+        self.assertEqual(payload["monthly"][0]["raw_spent"], 50)
+        self.assertEqual(payload["monthly"][0]["transferred_in"], 10)
+        self.assertEqual(payload["monthly"][0]["transferred_out"], 10)
         self.assertEqual(payload["monthly"][0]["platform_grants"], 80)
         self.assertEqual(payload["monthly"][0]["gained_excluding_platform_grants"], 20)
         self.assertEqual(payload["monthly"][0]["net_change_excluding_platform_grants"], -20)
         self.assertEqual(payload["monthly"][0]["events"][-1]["points"], ["线路维护补偿：赠送80元宝"])
         self.assertEqual(payload["monthly"][0]["events_excluding_platform_grants"][-1]["points"], ["充值"])
         self.assertEqual(payload["monthly"][1]["net_change"], -40)
-        self.assertEqual(payload["monthly"][1]["events"][0]["points"], ["公会捐献"])
+        self.assertEqual(payload["monthly"][1]["events"][0]["points"], ["疫区Boss组队"])
+        self.assertEqual(payload["monthly"][1]["transferred_out"], 20)
+        self.assertTrue(any(event["kind"] == "transfer" and event["points"] == ["公会捐献"] for event in payload["monthly"][1]["events"]))
         grant_source = next(row for row in payload["gainSources"] if row["is_platform_grant"])
         self.assertEqual(grant_source["gained"], 80)
         recharge_source = next(row for row in payload["gainSources"] if row["point"] == "充值")
         self.assertEqual(recharge_source["share_excluding_platform_grants"], 100.0)
+        self.assertEqual(len(payload["transferSources"]), 3)
+        self.assertNotIn("厕所匿名交易购买", [row["point"] for row in payload["consumptionPoints"]])
+        self.assertNotIn("公会捐献", [row["point"] for row in payload["consumptionPoints"]])
+        self.assertNotIn("厕所匿名交易出售", [row["point"] for row in payload["gainSources"]])
 
     def test_unavailable_yuanbao_stats_keep_all_collections(self):
         payload = app_module.load_unavailable_yuanbao_stats(RuntimeError("offline"))
@@ -352,6 +380,7 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(payload["monthly"], [])
         self.assertEqual(payload["consumptionPoints"], [])
         self.assertEqual(payload["gainSources"], [])
+        self.assertEqual(payload["transferSources"], [])
 
     def test_daily_paying_hospitals_are_grouped_for_latest_seven_days(self):
         source = Path("app/app.py").read_text(encoding="utf-8")

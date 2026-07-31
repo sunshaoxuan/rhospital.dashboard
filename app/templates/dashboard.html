@@ -259,7 +259,7 @@
         .yuanbao-summary-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
         .yuanbao-chart-box { height: 340px; max-height: 340px; }
         .yuanbao-chart-box canvas { height: 340px !important; max-height: 340px !important; }
-        .yuanbao-monthly-table table { min-width: 1180px; }
+        .yuanbao-monthly-table table { min-width: 1280px; }
         .yuanbao-point-table table { min-width: 1040px; }
         .yuanbao-source-table table { min-width: 900px; }
         .yuanbao-events { display: grid; gap: 5px; min-width: 320px; }
@@ -493,22 +493,22 @@
             <span class="yuanbao-filter-hint" id="yuanbaoPlatformGrantHint">读取平台赠送金额...</span>
         </div>
         <section class="cards yuanbao-summary-grid">
-            <div class="card"><div class="label">累计增加元宝</div><div class="value" id="yuanbaoTotalGained">-</div><div class="hint" id="yuanbaoTotalGainedHint">余额总账全部正向变化</div></div>
+            <div class="card"><div class="label">累计新增元宝</div><div class="value" id="yuanbaoTotalGained">-</div><div class="hint" id="yuanbaoTotalGainedHint">非转移正向变化</div></div>
             <div class="card"><div class="label">其中付费购入</div><div class="value" id="yuanbaoTotalPurchased">-</div><div class="hint">Stripe 与 Steam 已完成订单</div></div>
-            <div class="card"><div class="label">累计消耗元宝</div><div class="value" id="yuanbaoTotalSpent">-</div><div class="hint">余额总账全部负向变化</div></div>
-            <div class="card"><div class="label">总账净变化</div><div class="value" id="yuanbaoNetChange">-</div><div class="hint" id="yuanbaoNetChangeHint">累计增加减累计消耗</div></div>
+            <div class="card"><div class="label">累计消耗元宝</div><div class="value" id="yuanbaoTotalSpent">-</div><div class="hint" id="yuanbaoTotalSpentHint">非转移负向变化</div></div>
+            <div class="card"><div class="label">净增减元宝</div><div class="value" id="yuanbaoNetChange">-</div><div class="hint" id="yuanbaoNetChangeHint">新增减消耗，转移单列</div></div>
             <div class="card"><div class="label">消费点</div><div class="value" id="yuanbaoPointCount">-</div><div class="hint">合并同一道具不同购买数量</div></div>
             <div class="card"><div class="label">覆盖月份</div><div class="value" id="yuanbaoMonthCount">-</div><div class="hint" id="yuanbaoMonthRange">-</div></div>
         </section>
         <section class="grid">
             <div class="panel wide">
-                <h2>月度元宝增加与消耗</h2>
+                <h2>月度元宝新增、消耗与转移</h2>
                 <div class="chart-box yuanbao-chart-box"><canvas id="yuanbaoMonthlyChart"></canvas></div>
                 <div class="note" id="yuanbaoNote">读取中...</div>
             </div>
             <div class="panel wide">
                 <h2>月度变化与当月大事件</h2>
-                <div class="table-scroll yuanbao-monthly-table"><table><thead><tr><th>月份</th><th>增加</th><th>其中购入</th><th>消耗</th><th>净变化</th><th>参与医院</th><th>记录数</th><th>当月大事件</th></tr></thead><tbody id="yuanbaoMonthlyRows"><tr><td colspan="8">读取中...</td></tr></tbody></table></div>
+                <div class="table-scroll yuanbao-monthly-table"><table><thead><tr><th>月份</th><th>新增</th><th>其中购入</th><th>消耗</th><th>非消耗转移</th><th>净增减</th><th>参与医院</th><th>记录数</th><th>当月大事件</th></tr></thead><tbody id="yuanbaoMonthlyRows"><tr><td colspan="9">读取中...</td></tr></tbody></table></div>
             </div>
             <div class="panel wide">
                 <h2>全部直接与间接消费点</h2>
@@ -962,6 +962,7 @@
             monthly: data.monthly || [],
             consumptionPoints: data.consumptionPoints || [],
             gainSources: data.gainSources || [],
+            transferSources: data.transferSources || [],
             includePlatformGrants,
         });
         if (renderState.yuanbaoSignature === signature) return;
@@ -973,6 +974,8 @@
         }
         const summary = data.summary || {};
         const totalPlatformGrants = Number(summary.totalPlatformGrants || 0);
+        const totalTransferredIn = Number(summary.totalTransferredIn || 0);
+        const totalTransferredOut = Number(summary.totalTransferredOut || 0);
         const totalGained = includePlatformGrants
             ? Number(summary.totalGained || 0)
             : Number(summary.totalGainedExcludingPlatformGrants ?? Number(summary.totalGained || 0) - totalPlatformGrants);
@@ -996,13 +999,16 @@
                 display_share: includePlatformGrants ? row.share : row.share_excluding_platform_grants,
             }));
         document.getElementById('yuanbaoIncludePlatformGrants').checked = includePlatformGrants;
-        setText('yuanbaoPlatformGrantHint', `平台主动赠送合计 ${formatNumber(totalPlatformGrants)} 元宝，当前${includePlatformGrants ? '计入' : '排除'}其影响`);
+        setText('yuanbaoPlatformGrantHint', `平台主动赠送 ${formatNumber(totalPlatformGrants)} 元宝，当前${includePlatformGrants ? '计入' : '排除'}；非消耗转移 ${formatNumber(totalTransferredOut)} 元宝已单列`);
         setText('yuanbaoTotalGained', formatNumber(totalGained));
-        setText('yuanbaoTotalGainedHint', includePlatformGrants ? `其中平台主动赠送 ${formatNumber(totalPlatformGrants)}` : `已排除平台主动赠送 ${formatNumber(totalPlatformGrants)}`);
+        setText('yuanbaoTotalGainedHint', includePlatformGrants
+            ? `已排除转入 ${formatNumber(totalTransferredIn)}，其中平台赠送 ${formatNumber(totalPlatformGrants)}`
+            : `已排除转入 ${formatNumber(totalTransferredIn)} 和平台赠送 ${formatNumber(totalPlatformGrants)}`);
         setText('yuanbaoTotalPurchased', formatNumber(summary.totalPurchased));
         setText('yuanbaoTotalSpent', formatNumber(summary.totalSpent));
+        setText('yuanbaoTotalSpentHint', `已排除非消耗转移 ${formatNumber(totalTransferredOut)}`);
         setText('yuanbaoNetChange', formatSignedNumber(netChange));
-        setText('yuanbaoNetChangeHint', includePlatformGrants ? '累计增加减累计消耗，包含平台赠送' : '累计增加减累计消耗，已排除平台赠送');
+        setText('yuanbaoNetChangeHint', includePlatformGrants ? '新增减消耗，转移单列，包含平台赠送' : '新增减消耗，转移单列，已排除平台赠送');
         setText('yuanbaoPointCount', formatNumber(summary.consumptionPointCount));
         setText('yuanbaoMonthCount', formatNumber(summary.monthCount));
         setText('yuanbaoMonthRange', summary.firstMonth && summary.lastMonth ? `${summary.firstMonth} 至 ${summary.lastMonth}` : '-');
@@ -1018,8 +1024,9 @@
         upsertChart('yuanbaoMonthlyChart', 'bar', 'yuanbaoMonthlyChart', {
             labels: rows.map(row => row.label || row.month),
             datasets: [
-                {label: includePlatformGrants ? '全部增加' : '增加，已排除平台赠送', data: rows.map(row => row.display_gained), backgroundColor: 'rgba(72, 213, 151, 0.62)'},
+                {label: includePlatformGrants ? '全部新增' : '新增，已排除平台赠送', data: rows.map(row => row.display_gained), backgroundColor: 'rgba(72, 213, 151, 0.62)'},
                 {label: '全部消耗', data: rows.map(row => Number(row.spent || 0)), backgroundColor: 'rgba(255, 107, 134, 0.58)'},
+                {label: '非消耗转移', type: 'line', data: rows.map(row => Number(row.transferred_out || 0)), borderColor: '#54a7ff', backgroundColor: 'rgba(84, 167, 255, 0.12)', borderDash: [6, 4], tension: 0.3},
                 {label: '其中付费购入', type: 'line', data: rows.map(row => Number(row.yuanbao_purchased || 0)), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.12)', tension: 0.3},
                 {label: '净变化', type: 'line', data: rows.map(row => row.display_net_change), borderColor: '#ef6a32', backgroundColor: 'rgba(239, 106, 50, 0.1)', tension: 0.3},
             ]
@@ -1030,7 +1037,7 @@
         const tbody = document.getElementById('yuanbaoMonthlyRows');
         tbody.innerHTML = '';
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="8">没有数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9">没有数据</td></tr>';
             return;
         }
         [...rows].reverse().forEach(row => {
@@ -1040,7 +1047,7 @@
                 const amount = event.amount ? `，${formatNumber(event.amount)} 元宝` : '';
                 return `<div class="yuanbao-event"><strong>${escapeHtml(event.label)}</strong>：${escapeHtml((event.points || []).join('、'))}${amount}</div>`;
             }).join('') || '<div class="yuanbao-event">无明显事件</div>';
-            tr.innerHTML = `<td>${escapeHtml(row.label || row.month || '-')}</td><td class="value-positive">${formatNumber(row.display_gained)}</td><td>${formatNumber(row.yuanbao_purchased)}</td><td class="value-negative">${formatNumber(row.spent)}</td><td class="${netClass}">${formatSignedNumber(row.display_net_change)}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.event_count)}</td><td><div class="yuanbao-events">${events}</div></td>`;
+            tr.innerHTML = `<td>${escapeHtml(row.label || row.month || '-')}</td><td class="value-positive">${formatNumber(row.display_gained)}</td><td>${formatNumber(row.yuanbao_purchased)}</td><td class="value-negative">${formatNumber(row.spent)}</td><td>${formatNumber(row.transferred_out)}</td><td class="${netClass}">${formatSignedNumber(row.display_net_change)}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.event_count)}</td><td><div class="yuanbao-events">${events}</div></td>`;
             tbody.appendChild(tr);
         });
     }

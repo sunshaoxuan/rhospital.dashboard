@@ -865,6 +865,17 @@ def is_platform_yuanbao_grant(reason):
     return any(marker in text for marker in ("补偿", "赠送", "礼包"))
 
 
+def describe_yuanbao_transfer(reason):
+    text = str(reason or "").strip()
+    if text.startswith("厕所匿名交易购买"):
+        return {"point": "卫生间匿名交易", "category": "市场转移", "direction": "out"}
+    if text.startswith("厕所匿名交易出售"):
+        return {"point": "卫生间匿名交易", "category": "市场转移", "direction": "in"}
+    if text.startswith("公会捐献"):
+        return {"point": "公会捐献", "category": "公会转移", "direction": "out"}
+    return None
+
+
 def describe_yuanbao_reason(reason):
     text = str(reason or "(未记录原因)").strip() or "(未记录原因)"
     if text.startswith("商店购买:"):
@@ -874,8 +885,6 @@ def describe_yuanbao_reason(reason):
             "consumption_type": "间接消耗",
         }
     direct_categories = (
-        ("厕所匿名交易购买", "跳蚤市场"),
-        ("公会捐献", "公会"),
         ("疫区Boss组队", "疫区 Boss"),
         ("特需门诊元宝补诊", "特需门诊"),
         ("药剂实验室合成", "药剂实验室"),
@@ -890,11 +899,13 @@ def describe_yuanbao_reason(reason):
 def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
     consumption_points = []
     gain_sources = []
+    transfer_sources = []
     for row in reason_rows:
         gained = int(row.get("gained") or 0)
         spent = int(row.get("spent") or 0)
         reason = str(row.get("reason") or "(未记录原因)")
         described = describe_yuanbao_reason(row.get("reason"))
+        transfer = describe_yuanbao_transfer(reason)
         common = {
             "reason": reason,
             "point": described["point"],
@@ -904,6 +915,14 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
             "first_month": row.get("first_month") or "",
             "last_month": row.get("last_month") or "",
         }
+        if transfer:
+            transfer_sources.append({
+                **common,
+                **transfer,
+                "transferred_in": gained,
+                "transferred_out": spent,
+            })
+            continue
         if spent > 0:
             consumption_points.append({**common, "consumption_type": described["consumption_type"], "spent": spent})
         if gained > 0:
@@ -911,9 +930,12 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
 
     consumption_points.sort(key=lambda row: (-row["spent"], row["point"]))
     gain_sources.sort(key=lambda row: (-row["gained"], row["point"]))
-    total_spent = sum(int(row.get("spent") or 0) for row in monthly_rows)
-    total_gained = sum(int(row.get("gained") or 0) for row in monthly_rows)
+    transfer_sources.sort(key=lambda row: (row["category"], row["direction"], row["point"]))
+    total_spent = sum(row["spent"] for row in consumption_points)
+    total_gained = sum(row["gained"] for row in gain_sources)
     total_purchased = sum(int(row.get("yuanbao_purchased") or 0) for row in monthly_rows)
+    total_transferred_in = sum(row["transferred_in"] for row in transfer_sources)
+    total_transferred_out = sum(row["transferred_out"] for row in transfer_sources)
     total_platform_grants = sum(row["gained"] for row in gain_sources if row["is_platform_grant"])
     total_gained_excluding_platform_grants = total_gained - total_platform_grants
     for row in consumption_points:
@@ -931,20 +953,23 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
     for row in monthly_reason_rows:
         described = describe_yuanbao_reason(row.get("reason"))
         reason = str(row.get("reason") or "(未记录原因)")
+        transfer = describe_yuanbao_transfer(reason)
         monthly_reasons.setdefault(row.get("month") or "", []).append({
             "point": described["point"],
             "category": described["category"],
             "spent": int(row.get("spent") or 0),
             "gained": int(row.get("gained") or 0),
             "is_platform_grant": is_platform_yuanbao_grant(reason),
+            "transfer": transfer,
         })
 
     enriched_months = []
     for row in monthly_rows:
         month = row.get("month") or ""
         reason_values = monthly_reasons.get(month, [])
-        spend_values = sorted((value for value in reason_values if value["spent"] > 0), key=lambda value: -value["spent"])
-        gain_values = sorted((value for value in reason_values if value["gained"] > 0), key=lambda value: -value["gained"])
+        spend_values = sorted((value for value in reason_values if value["spent"] > 0 and not value["transfer"]), key=lambda value: -value["spent"])
+        gain_values = sorted((value for value in reason_values if value["gained"] > 0 and not value["transfer"]), key=lambda value: -value["gained"])
+        transfer_values = [value for value in reason_values if value["transfer"]]
         non_grant_gain_values = [value for value in gain_values if not value["is_platform_grant"]]
         new_points = [value for value in spend_values if first_spend_month.get(value["point"]) == month][:2]
         def build_events(selected_gain_values):
@@ -953,20 +978,37 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
                 events.append({"kind": "new", "label": "新增消费点", "points": [value["point"] for value in new_points]})
             if spend_values:
                 events.append({"kind": "spend", "label": "主要消耗", "points": [spend_values[0]["point"]], "amount": spend_values[0]["spent"]})
+            transferred_out = sum(value["spent"] for value in transfer_values)
+            transferred_in = sum(value["gained"] for value in transfer_values)
+            if transferred_out or transferred_in:
+                events.append({
+                    "kind": "transfer",
+                    "label": "非消耗转移",
+                    "points": sorted({value["transfer"]["point"] for value in transfer_values}),
+                    "amount": max(transferred_out, transferred_in),
+                })
             if selected_gain_values:
                 events.append({"kind": "gain", "label": "主要增加", "points": [selected_gain_values[0]["point"]], "amount": selected_gain_values[0]["gained"]})
             return events
 
-        gained = int(row.get("gained") or 0)
-        spent = int(row.get("spent") or 0)
+        raw_gained = int(row.get("gained") or 0)
+        raw_spent = int(row.get("spent") or 0)
+        transferred_in = sum(value["gained"] for value in transfer_values)
+        transferred_out = sum(value["spent"] for value in transfer_values)
+        gained = raw_gained - transferred_in
+        spent = raw_spent - transferred_out
         platform_grants = sum(value["gained"] for value in gain_values if value["is_platform_grant"])
         gained_excluding_platform_grants = gained - platform_grants
         enriched_months.append({
             **row,
+            "raw_gained": raw_gained,
+            "raw_spent": raw_spent,
             "gained": gained,
             "platform_grants": platform_grants,
             "gained_excluding_platform_grants": gained_excluding_platform_grants,
             "spent": spent,
+            "transferred_in": transferred_in,
+            "transferred_out": transferred_out,
             "net_change": gained - spent,
             "net_change_excluding_platform_grants": gained_excluding_platform_grants - spent,
             "yuanbao_purchased": int(row.get("yuanbao_purchased") or 0),
@@ -980,7 +1022,7 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
     return {
         "generatedAt": now_in_zone().isoformat(),
         "zoneId": ZONE_ID,
-        "note": "增加和消耗来自元宝余额总账；其中购入只统计 Stripe 已完成订单和 Steam 已完成且发货订单。平台主动赠送识别包含补偿、赠送或礼包的增加原因；任务奖励、充值和玩家交易不归入主动赠送。间接消耗指商店购买后再使用道具，其他明确扣减归为直接消耗。大事件由新增消费点和当月主导增减来源生成。",
+        "note": "增加和消耗来自元宝余额总账；卫生间匿名交易和公会捐献属于元宝转移，不计入增加或消耗并单独列示。其中购入只统计 Stripe 已完成订单和 Steam 已完成且发货订单。平台主动赠送识别包含补偿、赠送或礼包的增加原因；任务奖励和充值不归入主动赠送。间接消耗指商店购买后再使用道具，其他明确扣减归为直接消耗。大事件由新增消费点、非消耗转移和当月主导增减来源生成。",
         "summary": {
             "firstMonth": enriched_months[0]["month"] if enriched_months else "",
             "lastMonth": enriched_months[-1]["month"] if enriched_months else "",
@@ -990,6 +1032,9 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
             "totalGainedExcludingPlatformGrants": total_gained_excluding_platform_grants,
             "totalPurchased": total_purchased,
             "totalSpent": total_spent,
+            "totalTransferredIn": total_transferred_in,
+            "totalTransferredOut": total_transferred_out,
+            "transferPointCount": len({row["point"] for row in transfer_sources}),
             "netChange": total_gained - total_spent,
             "netChangeExcludingPlatformGrants": total_gained_excluding_platform_grants - total_spent,
             "consumptionPointCount": len(consumption_points),
@@ -997,6 +1042,7 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
         "monthly": enriched_months,
         "consumptionPoints": consumption_points,
         "gainSources": gain_sources,
+        "transferSources": transfer_sources,
     }
 
 
@@ -3135,6 +3181,7 @@ def load_unavailable_yuanbao_stats(error: Exception):
         "monthly": [],
         "consumptionPoints": [],
         "gainSources": [],
+        "transferSources": [],
     }
 
 
