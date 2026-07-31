@@ -900,6 +900,25 @@ def describe_yuanbao_reason(reason):
 
 
 def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows, release_events=None):
+    monthly_rows = [dict(row) for row in monthly_rows]
+    release_events = list(release_events or [])
+    known_months = {str(row.get("month") or "") for row in monthly_rows}
+    for release_month in sorted({str(event.get("month") or str(event.get("date") or "")[:7]) for event in release_events}):
+        if not release_month or release_month in known_months:
+            continue
+        year, month_number = release_month.split("-", 1)
+        monthly_rows.append({
+            "month": release_month,
+            "label": f"{year}年{month_number}月",
+            "gained": 0,
+            "spent": 0,
+            "yuanbao_purchased": 0,
+            "order_count": 0,
+            "event_count": 0,
+            "hospital_count": 0,
+        })
+        known_months.add(release_month)
+    monthly_rows.sort(key=lambda row: str(row.get("month") or ""))
     consumption_points = []
     gain_sources = []
     transfer_sources = []
@@ -966,7 +985,7 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows, release_
             "transfer": transfer,
         })
     release_events_by_month = {}
-    for release_event in release_events or []:
+    for release_event in release_events:
         month = str(release_event.get("month") or str(release_event.get("date") or "")[:7])
         title = str(release_event.get("title") or "").strip()
         date = str(release_event.get("date") or "").strip()

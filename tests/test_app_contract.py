@@ -423,6 +423,27 @@ class AppContractTest(unittest.TestCase):
         self.assertGreater(len(events), 20)
         self.assertTrue(any(event["title"].startswith("诊断室新增「院长驾到」") for event in events))
 
+    def test_release_only_launch_month_is_kept_with_zero_yuanbao_values(self):
+        payload = app_module.build_yuanbao_stats(
+            [
+                {"month": "2026-01", "label": "2026年01月", "gained": 20, "spent": 5, "yuanbao_purchased": 10, "order_count": 1, "event_count": 2, "hospital_count": 1},
+            ],
+            [],
+            [],
+            [
+                {"date": "2025-12-08", "month": "2025-12", "title": "上线广告牌功能"},
+            ],
+        )
+
+        self.assertEqual(payload["summary"]["firstMonth"], "2025-12")
+        self.assertEqual(payload["summary"]["monthCount"], 2)
+        self.assertEqual(payload["summary"]["releaseEventCount"], 1)
+        self.assertEqual(payload["monthly"][0]["month"], "2025-12")
+        self.assertEqual(payload["monthly"][0]["gained"], 0)
+        self.assertEqual(payload["monthly"][0]["spent"], 0)
+        self.assertEqual(payload["monthly"][0]["event_count"], 0)
+        self.assertEqual(payload["monthly"][0]["events"][0]["points"], ["12-08 上线广告牌功能"])
+
     def test_unavailable_yuanbao_stats_keep_all_collections(self):
         payload = app_module.load_unavailable_yuanbao_stats(RuntimeError("offline"))
 
