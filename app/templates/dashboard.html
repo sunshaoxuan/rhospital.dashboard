@@ -242,6 +242,17 @@
         .paying-summary-row:focus-visible { outline: 3px solid rgba(7, 156, 156, 0.24); outline-offset: -3px; }
         .hospital-cell { display: grid; gap: 3px; min-width: 160px; }
         .hospital-cell small { color: var(--muted); font-size: 11px; }
+        .yuanbao-summary-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+        .yuanbao-chart-box { height: 340px; max-height: 340px; }
+        .yuanbao-chart-box canvas { height: 340px !important; max-height: 340px !important; }
+        .yuanbao-monthly-table table { min-width: 1180px; }
+        .yuanbao-point-table table { min-width: 1040px; }
+        .yuanbao-source-table table { min-width: 900px; }
+        .yuanbao-events { display: grid; gap: 5px; min-width: 320px; }
+        .yuanbao-event { color: var(--muted); font-size: 12px; line-height: 1.45; }
+        .yuanbao-event strong { color: var(--text); }
+        .value-positive { color: var(--green); font-weight: 730; }
+        .value-negative { color: var(--red); font-weight: 730; }
         table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
         .purchase-grid table { min-width: 680px; }
         .modal table { min-width: 760px; }
@@ -308,6 +319,8 @@
             .purchase-grid { grid-template-columns: 1fr; }
             .paying-hospital-grid { grid-template-columns: 1fr; }
             .paying-hospital-scroll { height: auto; min-height: 220px; max-height: 430px; }
+            .yuanbao-chart-box { height: 300px; max-height: 300px; }
+            .yuanbao-chart-box canvas { height: 300px !important; max-height: 300px !important; }
         }
         @media (max-width: 680px) {
             .shell { width: 100%; padding: 14px 12px 24px; }
@@ -368,6 +381,7 @@
 
     <div class="tabs site-tabs" role="tablist" aria-label="看板页面">
         <button class="tab-btn active" type="button" data-page-tab="overall">运营总览</button>
+        <button class="tab-btn" type="button" data-page-tab="yuanbao">元宝统计</button>
         <button class="tab-btn" type="button" data-page-tab="specialClinic">特需门诊</button>
         <button class="tab-btn" type="button" data-page-tab="broker">医托拉人</button>
         <button class="tab-btn" type="button" data-page-tab="toiletMarket">跳蚤市场</button>
@@ -387,10 +401,7 @@
         <section class="grid">
             <div class="panel"><h2>最近24小时最后活跃分布，10分钟桶</h2><div class="chart-box"><canvas id="onlineChart"></canvas></div><div class="note" id="onlineNote"></div></div>
             <div class="panel"><h2>每日充值金额</h2><div class="chart-box"><canvas id="rechargeChart"></canvas></div><div class="note">金额按支付表最小货币单位除以100展示，图中默认展示 CNY。</div></div>
-            <div class="panel"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近14日日活来自进入游戏日志，快照仅用于生产库暂不可用时的补充。</div></div>
-            <div class="panel"><h2>元宝消耗统计，按小时</h2><div class="chart-box"><canvas id="yuanbaoSpendChart"></canvas></div><div class="note" id="yuanbaoSpendNote"></div></div>
-            <div class="panel"><h2>最近10周元宝消耗总量</h2><div class="chart-box"><canvas id="weeklyYuanbaoSpendChart"></canvas></div><div class="note" id="weeklyYuanbaoSpendNote"></div></div>
-            <div class="panel"><h2>最近10周元宝购入量</h2><div class="chart-box"><canvas id="weeklyYuanbaoPurchaseChart"></canvas></div><div class="note" id="weeklyYuanbaoPurchaseNote"></div></div>
+            <div class="panel wide"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近14日日活来自进入游戏日志，快照仅用于生产库暂不可用时的补充。</div></div>
             <div class="panel wide paying-hospital-panel">
                 <h2>最近 7 日每日氪金医院</h2>
                 <div class="paying-hospital-metrics">
@@ -414,12 +425,7 @@
                 </div>
                 <div class="note">按看板时区滚动统计今天及前 6 天，仅包含已完成支付，收入为零的日期仍保留；点击左侧日期筛选右侧医院明细，同一医院同日同渠道同币种合并，并按最近支付时间倒序展示。</div>
             </div>
-            <div class="panel">
-                <h2 class="chart-plot-title">近14日道具购买 Top 12</h2>
-                <div class="chart-box"><canvas id="itemPurchaseChart"></canvas></div>
-                <div class="table-scroll"><table><thead><tr><th>道具</th><th>购买次数</th><th>数量</th><th>消耗元宝</th></tr></thead><tbody id="itemPurchaseRows"></tbody></table></div>
-            </div>
-            <div class="panel">
+            <div class="panel wide">
                 <h2 class="chart-plot-title">近14日道具使用 Top 12</h2>
                 <div class="chart-box"><canvas id="itemUseChart"></canvas></div>
                 <div class="table-scroll"><table><thead><tr><th>道具</th><th>日志次数</th><th>使用次数</th><th>医院数</th></tr></thead><tbody id="itemUseRows"></tbody></table></div>
@@ -441,7 +447,6 @@
                 <div class="tabs" role="tablist" aria-label="统计明细分类">
                     <button class="tab-btn active" type="button" data-stat-tab="items">道具</button>
                     <button class="tab-btn" type="button" data-stat-tab="money">金钱</button>
-                    <button class="tab-btn" type="button" data-stat-tab="yuanbao">元宝</button>
                     <button class="tab-btn" type="button" data-stat-tab="prestige">声望</button>
                     <button class="tab-btn" type="button" data-stat-tab="guild">公会</button>
                     <button class="tab-btn" type="button" data-stat-tab="registrants">注册者</button>
@@ -459,6 +464,36 @@
                         <button id="statNextPage" type="button">下一页</button>
                     </div>
                 </div>
+            </div>
+        </section>
+    </section>
+
+    <section id="yuanbaoPage" class="page-section" hidden>
+        <section class="cards yuanbao-summary-grid">
+            <div class="card"><div class="label">累计增加元宝</div><div class="value" id="yuanbaoTotalGained">-</div><div class="hint">余额总账全部正向变化</div></div>
+            <div class="card"><div class="label">其中付费购入</div><div class="value" id="yuanbaoTotalPurchased">-</div><div class="hint">Stripe 与 Steam 已完成订单</div></div>
+            <div class="card"><div class="label">累计消耗元宝</div><div class="value" id="yuanbaoTotalSpent">-</div><div class="hint">余额总账全部负向变化</div></div>
+            <div class="card"><div class="label">总账净变化</div><div class="value" id="yuanbaoNetChange">-</div><div class="hint">累计增加减累计消耗</div></div>
+            <div class="card"><div class="label">消费点</div><div class="value" id="yuanbaoPointCount">-</div><div class="hint">合并同一道具不同购买数量</div></div>
+            <div class="card"><div class="label">覆盖月份</div><div class="value" id="yuanbaoMonthCount">-</div><div class="hint" id="yuanbaoMonthRange">-</div></div>
+        </section>
+        <section class="grid">
+            <div class="panel wide">
+                <h2>月度元宝增加与消耗</h2>
+                <div class="chart-box yuanbao-chart-box"><canvas id="yuanbaoMonthlyChart"></canvas></div>
+                <div class="note" id="yuanbaoNote">读取中...</div>
+            </div>
+            <div class="panel wide">
+                <h2>月度变化与当月大事件</h2>
+                <div class="table-scroll yuanbao-monthly-table"><table><thead><tr><th>月份</th><th>增加</th><th>其中购入</th><th>消耗</th><th>净变化</th><th>参与医院</th><th>记录数</th><th>当月大事件</th></tr></thead><tbody id="yuanbaoMonthlyRows"><tr><td colspan="8">读取中...</td></tr></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>全部直接与间接消费点</h2>
+                <div class="table-scroll bounded-table yuanbao-point-table"><table><thead><tr><th>类型</th><th>类别</th><th>消费点</th><th>累计消耗</th><th>占比</th><th>记录数</th><th>医院数</th><th>首次月份</th><th>最近月份</th></tr></thead><tbody id="yuanbaoConsumptionRows"><tr><td colspan="9">读取中...</td></tr></tbody></table></div>
+            </div>
+            <div class="panel wide">
+                <h2>全部元宝增加来源</h2>
+                <div class="table-scroll bounded-table yuanbao-source-table"><table><thead><tr><th>增加来源</th><th>累计增加</th><th>占比</th><th>记录数</th><th>医院数</th><th>首次月份</th><th>最近月份</th></tr></thead><tbody id="yuanbaoGainRows"><tr><td colspan="7">读取中...</td></tr></tbody></table></div>
             </div>
         </section>
     </section>
@@ -632,9 +667,9 @@
         }
     };
     Chart.register(plotTitleAlignmentPlugin);
-    const PAGE_KEYS = ['overall', 'specialClinic', 'broker', 'toiletMarket'];
-    const PAGE_LABELS = {overall: '运营总览', specialClinic: '特需门诊', broker: '医托拉人', toiletMarket: '跳蚤市场'};
-    const pageData = {overall: null, broker: null, toiletMarket: null};
+    const PAGE_KEYS = ['overall', 'yuanbao', 'specialClinic', 'broker', 'toiletMarket'];
+    const PAGE_LABELS = {overall: '运营总览', yuanbao: '元宝统计', specialClinic: '特需门诊', broker: '医托拉人', toiletMarket: '跳蚤市场'};
+    const pageData = {overall: null, yuanbao: null, broker: null, toiletMarket: null};
     const pageLoadState = Object.fromEntries(PAGE_KEYS.map(page => [page, {promise: null, pending: false, loaded: false, error: ''}]));
     let currentPage = 'overall';
     let statTableRequestId = 0;
@@ -717,11 +752,12 @@
     }
 
     function switchPage(page) {
-        currentPage = ['specialClinic', 'broker', 'toiletMarket'].includes(page) ? page : 'overall';
+        currentPage = ['yuanbao', 'specialClinic', 'broker', 'toiletMarket'].includes(page) ? page : 'overall';
         document.querySelectorAll('[data-page-tab]').forEach(button => {
             button.classList.toggle('active', button.dataset.pageTab === currentPage);
         });
         document.getElementById('overallPage').hidden = currentPage !== 'overall';
+        document.getElementById('yuanbaoPage').hidden = currentPage !== 'yuanbao';
         document.getElementById('specialClinicPage').hidden = currentPage !== 'specialClinic';
         document.getElementById('brokerPage').hidden = currentPage !== 'broker';
         document.getElementById('toiletMarketPage').hidden = currentPage !== 'toiletMarket';
@@ -732,6 +768,7 @@
     }
 
     function pageLoader(page) {
+        if (page === 'yuanbao') return loadYuanbaoStats();
         if (page === 'specialClinic') return loadSpecialClinicStats(specialClinicState.selectedWeekKey);
         if (page === 'broker') return loadBrokerStats();
         if (page === 'toiletMarket') return loadToiletMarketStats();
@@ -799,6 +836,7 @@
 
     function renderCachedPage(page) {
         if (page === 'overall' && pageData.overall) render(pageData.overall);
+        if (page === 'yuanbao' && pageData.yuanbao) renderYuanbaoStats(pageData.yuanbao);
         if (page === 'specialClinic' && specialClinicState.data) renderSpecialClinic(specialClinicState.data);
         if (page === 'broker' && pageData.broker) renderBrokerStats(pageData.broker);
         if (page === 'toiletMarket' && pageData.toiletMarket) renderToiletMarketStats(pageData.toiletMarket);
@@ -814,6 +852,12 @@
         const data = await fetchJson('api/stats');
         pageData.overall = data;
         if (currentPage === 'overall') render(data);
+    }
+
+    async function loadYuanbaoStats() {
+        const data = await fetchJson('api/yuanbao-stats');
+        pageData.yuanbao = data;
+        if (currentPage === 'yuanbao') renderYuanbaoStats(data);
     }
 
     async function loadSpecialClinicStats(weekKey = null) {
@@ -847,10 +891,8 @@
             summary: data.summary || {}, note: data.note || '', zoneId: data.zoneId || '',
             onlineBuckets: data.onlineBuckets || [], dailyRecharge: data.dailyRecharge || [],
             payingHospitals: data.payingHospitals || {},
-            dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [], hourlyYuanbaoSpending: data.hourlyYuanbaoSpending || [],
-            weeklyYuanbaoSpending: data.weeklyYuanbaoSpending || [],
-            weeklyYuanbaoPurchases: data.weeklyYuanbaoPurchases || [],
-            itemPurchases: data.itemPurchases || [], itemUsages: data.itemUsages || []
+            dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [],
+            itemUsages: data.itemUsages || []
         });
         if (renderState.overallSignature === overallSignature) return;
         renderState.overallSignature = overallSignature;
@@ -861,25 +903,109 @@
         setText('activeToday', formatNumber(s.active_today_accounts));
         setText('registrationsToday', formatNumber(s.registrations_today));
         setText('stripeRechargeToday', `¥${formatMoney(s.stripe_recharge_cny_today)}`);
-        setText('stripeRechargeHint', `${formatNumber(s.stripe_recharge_orders_today)} 笔，${formatNumber(s.stripe_recharge_yuanbao_today)} 元宝`);
+        setText('stripeRechargeHint', `${formatNumber(s.stripe_recharge_orders_today)} 笔已完成订单`);
         setText('steamRechargeToday', `¥${formatMoney(s.steam_recharge_cny_today)}`);
-        setText('steamRechargeHint', `${formatNumber(s.steam_recharge_orders_today)} 笔，${formatNumber(s.steam_recharge_yuanbao_today)} 元宝`);
+        setText('steamRechargeHint', `${formatNumber(s.steam_recharge_orders_today)} 笔已完成订单`);
         setText('onlineNote', data.note || '');
-        setText('yuanbaoSpendNote', '近14日按小时统计，仅统计元宝减少日志。');
-        setText('weeklyYuanbaoSpendNote', '按周一至周日滚动最近10周统计，仅统计元宝减少日志。');
-        setText('weeklyYuanbaoPurchaseNote', '按周一至周日滚动最近10周统计，购入量来自已完成支付订单的元宝数量。');
         renderPayingHospitals(data.payingHospitals || {});
 
         renderOnlineChart(data.onlineBuckets || []);
         renderRechargeChart(data.dailyRecharge || []);
         renderActivityChart(data.dailyActive || [], data.dailyRegistrations || []);
-        renderYuanbaoSpendChart(data.hourlyYuanbaoSpending || []);
-        renderWeeklyYuanbaoSpendChart(data.weeklyYuanbaoSpending || []);
-        renderWeeklyYuanbaoPurchaseChart(data.weeklyYuanbaoPurchases || []);
-        renderItemPurchaseChart(data.itemPurchases || []);
         renderItemUseChart(data.itemUsages || []);
-        renderItemActivityRows('itemPurchaseRows', data.itemPurchases || [], true);
         renderItemActivityRows('itemUseRows', data.itemUsages || [], false);
+    }
+
+    function renderYuanbaoStats(data) {
+        const signature = stableStringify({
+            generatedAt: data.generatedAt,
+            zoneId: data.zoneId,
+            sourceError: data.sourceError || '',
+            summary: data.summary || {},
+            monthly: data.monthly || [],
+            consumptionPoints: data.consumptionPoints || [],
+            gainSources: data.gainSources || [],
+        });
+        if (renderState.yuanbaoSignature === signature) return;
+        renderState.yuanbaoSignature = signature;
+        if (data.sourceError) {
+            const error = document.getElementById('error');
+            error.textContent = `元宝统计数据源暂不可用：${data.sourceError}`;
+            error.style.display = 'block';
+        }
+        const summary = data.summary || {};
+        setText('yuanbaoTotalGained', formatNumber(summary.totalGained));
+        setText('yuanbaoTotalPurchased', formatNumber(summary.totalPurchased));
+        setText('yuanbaoTotalSpent', formatNumber(summary.totalSpent));
+        setText('yuanbaoNetChange', formatSignedNumber(summary.netChange));
+        setText('yuanbaoPointCount', formatNumber(summary.consumptionPointCount));
+        setText('yuanbaoMonthCount', formatNumber(summary.monthCount));
+        setText('yuanbaoMonthRange', summary.firstMonth && summary.lastMonth ? `${summary.firstMonth} 至 ${summary.lastMonth}` : '-');
+        setText('yuanbaoNote', data.note || '');
+        renderYuanbaoMonthlyChart(data.monthly || []);
+        renderYuanbaoMonthlyRows(data.monthly || []);
+        renderYuanbaoConsumptionRows(data.consumptionPoints || []);
+        renderYuanbaoGainRows(data.gainSources || []);
+    }
+
+    function renderYuanbaoMonthlyChart(rows) {
+        upsertChart('yuanbaoMonthlyChart', 'bar', 'yuanbaoMonthlyChart', {
+            labels: rows.map(row => row.label || row.month),
+            datasets: [
+                {label: '全部增加', data: rows.map(row => Number(row.gained || 0)), backgroundColor: 'rgba(72, 213, 151, 0.62)'},
+                {label: '全部消耗', data: rows.map(row => Number(row.spent || 0)), backgroundColor: 'rgba(255, 107, 134, 0.58)'},
+                {label: '其中付费购入', type: 'line', data: rows.map(row => Number(row.yuanbao_purchased || 0)), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.12)', tension: 0.3},
+                {label: '净变化', type: 'line', data: rows.map(row => Number(row.net_change || 0)), borderColor: '#ef6a32', backgroundColor: 'rgba(239, 106, 50, 0.1)', tension: 0.3},
+            ]
+        });
+    }
+
+    function renderYuanbaoMonthlyRows(rows) {
+        const tbody = document.getElementById('yuanbaoMonthlyRows');
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="8">没有数据</td></tr>';
+            return;
+        }
+        [...rows].reverse().forEach(row => {
+            const tr = document.createElement('tr');
+            const netClass = Number(row.net_change || 0) >= 0 ? 'value-positive' : 'value-negative';
+            const events = (row.events || []).map(event => {
+                const amount = event.amount ? `，${formatNumber(event.amount)} 元宝` : '';
+                return `<div class="yuanbao-event"><strong>${escapeHtml(event.label)}</strong>：${escapeHtml((event.points || []).join('、'))}${amount}</div>`;
+            }).join('') || '<div class="yuanbao-event">无明显事件</div>';
+            tr.innerHTML = `<td>${escapeHtml(row.label || row.month || '-')}</td><td class="value-positive">${formatNumber(row.gained)}</td><td>${formatNumber(row.yuanbao_purchased)}</td><td class="value-negative">${formatNumber(row.spent)}</td><td class="${netClass}">${formatSignedNumber(row.net_change)}</td><td>${formatNumber(row.hospital_count)}</td><td>${formatNumber(row.event_count)}</td><td><div class="yuanbao-events">${events}</div></td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renderYuanbaoConsumptionRows(rows) {
+        const tbody = document.getElementById('yuanbaoConsumptionRows');
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="9">没有数据</td></tr>';
+            return;
+        }
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            const typeClass = row.consumption_type === '间接消耗' ? 'yellow' : 'red';
+            tr.innerHTML = `<td><span class="pill ${typeClass}">${escapeHtml(row.consumption_type || '-')}</span></td><td>${escapeHtml(row.category || '-')}</td><td>${escapeHtml(row.point || '-')}</td><td class="value-negative">${formatNumber(row.spent)}</td><td>${formatPercent(row.share)}</td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.hospital_count)}</td><td>${escapeHtml(row.first_month || '-')}</td><td>${escapeHtml(row.last_month || '-')}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renderYuanbaoGainRows(rows) {
+        const tbody = document.getElementById('yuanbaoGainRows');
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="7">没有数据</td></tr>';
+            return;
+        }
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${escapeHtml(row.point || row.reason || '-')}</td><td class="value-positive">${formatNumber(row.gained)}</td><td>${formatPercent(row.share)}</td><td>${formatNumber(row.event_count)}</td><td>${formatNumber(row.hospital_count)}</td><td>${escapeHtml(row.first_month || '-')}</td><td>${escapeHtml(row.last_month || '-')}</td>`;
+            tbody.appendChild(tr);
+        });
     }
 
     function renderBrokerStats(data) {
@@ -1133,13 +1259,6 @@
         });
     }
 
-    function renderYuanbaoSpendChart(rows) {
-        upsertChart('yuanbaoSpendChart', 'bar', 'yuanbaoSpendChart', {
-            labels: rows.map(row => row.label),
-            datasets: [{label: '消耗元宝', data: rows.map(row => Number(row.yuanbao_spent || 0)), backgroundColor: 'rgba(255, 209, 102, 0.72)'}]
-        });
-    }
-
     function renderPayingHospitals(data) {
         payingHospitalState.data = data;
         const days = [...new Set((data.dailySummary || []).map(row => row.day).filter(Boolean))].sort().reverse();
@@ -1196,45 +1315,6 @@
             channel: value => `<span class="pill">${escapeHtml(value || '-')}</span>`,
             amount: (value, row) => escapeHtml(formatCurrencyAmount(value, row.currency)),
         });
-    }
-
-    function renderWeeklyYuanbaoSpendChart(rows) {
-        upsertChart('weeklyYuanbaoSpendChart', 'bar', 'weeklyYuanbaoSpendChart', {
-            labels: rows.map(row => row.label),
-            datasets: [
-                {label: '周消耗元宝', data: rows.map(row => Number(row.yuanbao_spent || 0)), backgroundColor: 'rgba(84, 167, 255, 0.64)'},
-                {label: '消耗记录数', type: 'line', data: rows.map(row => Number(row.event_count || 0)), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.12)', tension: 0.32, yAxisID: 'events'}
-            ]
-        }, {
-            scales: {
-                x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
-                y: {position: 'left', ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
-                events: {position: 'right', ticks: {color: '#48d597'}, grid: {drawOnChartArea: false}, beginAtZero: true}
-            }
-        });
-    }
-
-    function renderWeeklyYuanbaoPurchaseChart(rows) {
-        upsertChart('weeklyYuanbaoPurchaseChart', 'bar', 'weeklyYuanbaoPurchaseChart', {
-            labels: rows.map(row => row.label),
-            datasets: [
-                {label: '购入元宝', data: rows.map(row => Number(row.yuanbao_purchased || 0)), backgroundColor: 'rgba(255, 209, 102, 0.68)'},
-                {label: '订单数', type: 'line', data: rows.map(row => Number(row.order_count || 0)), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.12)', tension: 0.32, yAxisID: 'orders'}
-            ]
-        }, {
-            scales: {
-                x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
-                y: {position: 'left', ticks: {color: '#98aac3'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
-                orders: {position: 'right', ticks: {color: '#b898ff'}, grid: {drawOnChartArea: false}, beginAtZero: true}
-            }
-        });
-    }
-
-    function renderItemPurchaseChart(rows) {
-        upsertChart('itemPurchaseChart', 'bar', 'itemPurchaseChart', {
-            labels: rows.map(row => row.item_name),
-            datasets: [{label: '购买数量', data: rows.map(row => row.quantity), backgroundColor: 'rgba(72, 213, 151, 0.62)'}]
-        }, {indexAxis: 'y', plugins: {plotTitleAlignment: {enabled: true}}});
     }
 
     function renderItemUseChart(rows) {
@@ -1738,6 +1818,10 @@
         });
     }
     function formatNumber(value) { return Number(value || 0).toLocaleString('zh-CN'); }
+    function formatSignedNumber(value) {
+        const number = Number(value || 0);
+        return `${number > 0 ? '+' : ''}${number.toLocaleString('zh-CN')}`;
+    }
     function formatMoney(value) { return Number(value || 0).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
     function formatCurrencyAmount(value, currency) {
         const code = String(currency || 'unknown').toUpperCase();

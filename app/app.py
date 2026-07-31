@@ -604,11 +604,6 @@ def load_summary(conn):
             where status = 'COMPLETED'
               and (update_time at time zone 'UTC' at time zone %s)::date = (now() at time zone %s)::date
             union all
-            select 'paddle' as source, amount, currency, yuanbao_amount
-            from t_paddle_payment_orders
-            where status = 'COMPLETED'
-              and (update_time at time zone 'UTC' at time zone %s)::date = (now() at time zone %s)::date
-            union all
             select 'steam' as source, amount, currency, yuanbao_amount
             from t_steam_payment_orders
             where status = 'COMPLETED' and delivered is true
@@ -646,7 +641,7 @@ def load_summary(conn):
             (select coalesce(sum(yuanbao_amount), 0) from recharge_today where source = 'steam') as steam_recharge_yuanbao_today,
             (select count(*) from recharge_today where source = 'steam') as steam_recharge_orders_today
         """,
-        (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
+        (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
     )
     row["recharge_cny_today"] = major_amount(row.pop("recharge_cny_minor_today", 0))
     row["stripe_recharge_cny_today"] = major_amount(row.pop("stripe_recharge_cny_minor_today", 0))
@@ -706,10 +701,6 @@ def load_stats_from_prod():
             ),
             "dailyRecharge": load_daily_recharge(conn),
             "payingHospitals": load_daily_paying_hospitals(conn),
-            "hourlyYuanbaoSpending": load_hourly_yuanbao_spending(conn),
-            "weeklyYuanbaoSpending": load_weekly_yuanbao_spending(conn),
-            "weeklyYuanbaoPurchases": load_weekly_yuanbao_purchases(conn),
-            "itemPurchases": load_item_purchases(conn),
             "itemUsages": load_item_usages(conn),
         }
         return stats
@@ -739,8 +730,6 @@ def load_daily_recharge(conn):
         """
         with orders as (
             select update_time, amount, currency, yuanbao_amount from t_payment_orders where status = 'COMPLETED'
-            union all
-            select update_time, amount, currency, yuanbao_amount from t_paddle_payment_orders where status = 'COMPLETED'
             union all
             select update_time, amount, currency, yuanbao_amount from t_steam_payment_orders where status = 'COMPLETED' and delivered is true
         )
@@ -845,10 +834,6 @@ def load_daily_paying_hospitals(conn):
             from t_payment_orders
             where status = 'COMPLETED'
             union all
-            select 'Paddle' as channel, hospital_id, update_time, amount, currency
-            from t_paddle_payment_orders
-            where status = 'COMPLETED'
-            union all
             select 'Steam' as channel, hospital_id, update_time, amount, currency
             from t_steam_payment_orders
             where status = 'COMPLETED' and delivered is true
@@ -875,107 +860,199 @@ def load_daily_paying_hospitals(conn):
     return summarize_daily_paying_hospitals(rows)
 
 
-def load_hourly_yuanbao_spending(conn):
-    return query_list(
-        conn,
-        """
-        select to_char(date_trunc('hour', create_time at time zone 'UTC' at time zone %s),
-                       'MM-DD HH24:00') as label,
-               count(*) as event_count,
-               coalesce(sum(greatest(coalesce(old_value, 0) - coalesce(new_value, 0), 0)), 0) as yuanbao_spent
-        from t_log_yuanbao
-        where old_value is not null
-          and new_value is not null
-          and old_value > new_value
-          and (create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
-        group by label
-        order by min(create_time)
-        """,
-        (ZONE_ID, ZONE_ID, ZONE_ID),
+def describe_yuanbao_reason(reason):
+    text = str(reason or "(未记录原因)").strip() or "(未记录原因)"
+    if text.startswith("商店购买:"):
+        return {
+            "point": f"商店购买：{text.split(':', 1)[1].strip()}",
+            "category": "商店购买",
+            "consumption_type": "间接消耗",
+        }
+    direct_categories = (
+        ("厕所匿名交易购买", "跳蚤市场"),
+        ("公会捐献", "公会"),
+        ("疫区Boss组队", "疫区 Boss"),
+        ("特需门诊元宝补诊", "特需门诊"),
+        ("药剂实验室合成", "药剂实验室"),
+        ("解锁监察员", "监察员"),
     )
+    for prefix, category in direct_categories:
+        if text.startswith(prefix):
+            return {"point": text, "category": category, "consumption_type": "直接消耗"}
+    return {"point": text, "category": "其他", "consumption_type": "直接消耗"}
 
 
-def load_weekly_yuanbao_spending(conn):
-    return query_list(
-        conn,
-        """
-        with bounds as (
-            select date_trunc('week', now() at time zone %s)::date as current_week_start
-        ), weeks as (
-            select generate_series(
-                       current_week_start - interval '9 weeks',
-                       current_week_start,
-                       interval '1 week'
-                   )::date as week_start
-            from bounds
-        ), spending as (
-            select date_trunc('week', create_time at time zone 'UTC' at time zone %s)::date as week_start,
+def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
+    consumption_points = []
+    gain_sources = []
+    for row in reason_rows:
+        gained = int(row.get("gained") or 0)
+        spent = int(row.get("spent") or 0)
+        described = describe_yuanbao_reason(row.get("reason"))
+        common = {
+            "reason": str(row.get("reason") or "(未记录原因)"),
+            "point": described["point"],
+            "category": described["category"],
+            "event_count": int(row.get("event_count") or 0),
+            "hospital_count": int(row.get("hospital_count") or 0),
+            "first_month": row.get("first_month") or "",
+            "last_month": row.get("last_month") or "",
+        }
+        if spent > 0:
+            consumption_points.append({**common, "consumption_type": described["consumption_type"], "spent": spent})
+        if gained > 0:
+            gain_sources.append({**common, "gained": gained})
+
+    consumption_points.sort(key=lambda row: (-row["spent"], row["point"]))
+    gain_sources.sort(key=lambda row: (-row["gained"], row["point"]))
+    total_spent = sum(int(row.get("spent") or 0) for row in monthly_rows)
+    total_gained = sum(int(row.get("gained") or 0) for row in monthly_rows)
+    total_purchased = sum(int(row.get("yuanbao_purchased") or 0) for row in monthly_rows)
+    for row in consumption_points:
+        row["share"] = round(row["spent"] * 100 / total_spent, 2) if total_spent else 0.0
+    for row in gain_sources:
+        row["share"] = round(row["gained"] * 100 / total_gained, 2) if total_gained else 0.0
+
+    first_spend_month = {row["point"]: row["first_month"] for row in consumption_points}
+    monthly_reasons = {}
+    for row in monthly_reason_rows:
+        described = describe_yuanbao_reason(row.get("reason"))
+        monthly_reasons.setdefault(row.get("month") or "", []).append({
+            "point": described["point"],
+            "category": described["category"],
+            "spent": int(row.get("spent") or 0),
+            "gained": int(row.get("gained") or 0),
+        })
+
+    enriched_months = []
+    for row in monthly_rows:
+        month = row.get("month") or ""
+        reason_values = monthly_reasons.get(month, [])
+        spend_values = sorted((value for value in reason_values if value["spent"] > 0), key=lambda value: -value["spent"])
+        gain_values = sorted((value for value in reason_values if value["gained"] > 0), key=lambda value: -value["gained"])
+        new_points = [value for value in spend_values if first_spend_month.get(value["point"]) == month][:2]
+        events = []
+        if new_points:
+            events.append({"kind": "new", "label": "新增消费点", "points": [value["point"] for value in new_points]})
+        if spend_values:
+            events.append({"kind": "spend", "label": "主要消耗", "points": [spend_values[0]["point"]], "amount": spend_values[0]["spent"]})
+        if gain_values:
+            events.append({"kind": "gain", "label": "主要增加", "points": [gain_values[0]["point"]], "amount": gain_values[0]["gained"]})
+        gained = int(row.get("gained") or 0)
+        spent = int(row.get("spent") or 0)
+        enriched_months.append({
+            **row,
+            "gained": gained,
+            "spent": spent,
+            "net_change": gained - spent,
+            "yuanbao_purchased": int(row.get("yuanbao_purchased") or 0),
+            "order_count": int(row.get("order_count") or 0),
+            "event_count": int(row.get("event_count") or 0),
+            "hospital_count": int(row.get("hospital_count") or 0),
+            "events": events,
+        })
+
+    return {
+        "generatedAt": now_in_zone().isoformat(),
+        "zoneId": ZONE_ID,
+        "note": "增加和消耗来自元宝余额总账；其中购入只统计 Stripe 已完成订单和 Steam 已完成且发货订单。间接消耗指商店购买后再使用道具，其他明确扣减归为直接消耗。大事件由新增消费点和当月主导增减来源生成。",
+        "summary": {
+            "firstMonth": enriched_months[0]["month"] if enriched_months else "",
+            "lastMonth": enriched_months[-1]["month"] if enriched_months else "",
+            "monthCount": len(enriched_months),
+            "totalGained": total_gained,
+            "totalPurchased": total_purchased,
+            "totalSpent": total_spent,
+            "netChange": total_gained - total_spent,
+            "consumptionPointCount": len(consumption_points),
+        },
+        "monthly": enriched_months,
+        "consumptionPoints": consumption_points,
+        "gainSources": gain_sources,
+    }
+
+
+def load_yuanbao_stats_from_prod():
+    normalized_reason = "coalesce(nullif(regexp_replace(btrim(reason), '[[:space:]]+x[[:space:]]+[0-9]+$', '', 'g'), ''), '(未记录原因)')"
+    with prod_connection() as conn:
+        monthly_rows = query_list(
+            conn,
+            """
+            with bounds as (
+                select date_trunc('month', min(create_time at time zone 'UTC' at time zone %s))::date as first_month,
+                       date_trunc('month', now() at time zone %s)::date as current_month
+                from t_log_yuanbao
+                where old_value is not null and new_value is not null and old_value <> new_value
+            ), months as (
+                select generate_series(first_month, current_month, interval '1 month')::date as month_start
+                from bounds
+            ), balance as (
+                select date_trunc('month', create_time at time zone 'UTC' at time zone %s)::date as month_start,
+                       count(*) as event_count,
+                       count(distinct hospital_id) as hospital_count,
+                       coalesce(sum(greatest(new_value - old_value, 0)), 0) as gained,
+                       coalesce(sum(greatest(old_value - new_value, 0)), 0) as spent
+                from t_log_yuanbao
+                where old_value is not null and new_value is not null and old_value <> new_value
+                group by 1
+            ), orders as (
+                select update_time, yuanbao_amount from t_payment_orders where status = 'COMPLETED'
+                union all
+                select update_time, yuanbao_amount from t_steam_payment_orders where status = 'COMPLETED' and delivered is true
+            ), purchases as (
+                select date_trunc('month', update_time at time zone 'UTC' at time zone %s)::date as month_start,
+                       count(*) as order_count,
+                       coalesce(sum(coalesce(yuanbao_amount, 0)), 0) as yuanbao_purchased
+                from orders
+                group by 1
+            )
+            select to_char(months.month_start, 'YYYY-MM') as month,
+                   to_char(months.month_start, 'YYYY年MM月') as label,
+                   coalesce(balance.gained, 0) as gained,
+                   coalesce(balance.spent, 0) as spent,
+                   coalesce(balance.event_count, 0) as event_count,
+                   coalesce(balance.hospital_count, 0) as hospital_count,
+                   coalesce(purchases.order_count, 0) as order_count,
+                   coalesce(purchases.yuanbao_purchased, 0) as yuanbao_purchased
+            from months
+            left join balance on balance.month_start = months.month_start
+            left join purchases on purchases.month_start = months.month_start
+            order by months.month_start
+            """,
+            (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID),
+        )
+        reason_rows = query_list(
+            conn,
+            f"""
+            select {normalized_reason} as reason,
                    count(*) as event_count,
-                   coalesce(sum(greatest(coalesce(old_value, 0) - coalesce(new_value, 0), 0)), 0) as yuanbao_spent
-            from t_log_yuanbao, bounds
-            where old_value is not null
-              and new_value is not null
-              and old_value > new_value
-              and (create_time at time zone 'UTC' at time zone %s)::date >= current_week_start - interval '9 weeks'
-            group by week_start
+                   count(distinct hospital_id) as hospital_count,
+                   coalesce(sum(greatest(new_value - old_value, 0)), 0) as gained,
+                   coalesce(sum(greatest(old_value - new_value, 0)), 0) as spent,
+                   to_char(min(create_time at time zone 'UTC' at time zone %s), 'YYYY-MM') as first_month,
+                   to_char(max(create_time at time zone 'UTC' at time zone %s), 'YYYY-MM') as last_month
+            from t_log_yuanbao
+            where old_value is not null and new_value is not null and old_value <> new_value
+            group by 1
+            order by spent desc, gained desc, event_count desc
+            """,
+            (ZONE_ID, ZONE_ID),
         )
-        select weeks.week_start::text as week_start,
-               (weeks.week_start + 6)::text as week_end,
-               to_char(weeks.week_start, 'MM-DD') || ' 至 ' || to_char(weeks.week_start + 6, 'MM-DD') as label,
-               coalesce(spending.event_count, 0) as event_count,
-               coalesce(spending.yuanbao_spent, 0) as yuanbao_spent
-        from weeks
-        left join spending on spending.week_start = weeks.week_start
-        order by weeks.week_start
-        """,
-        (ZONE_ID, ZONE_ID, ZONE_ID),
-    )
-
-
-def load_weekly_yuanbao_purchases(conn):
-    return query_list(
-        conn,
-        """
-        with bounds as (
-            select date_trunc('week', now() at time zone %s)::date as current_week_start
-        ), weeks as (
-            select generate_series(
-                       current_week_start - interval '9 weeks',
-                       current_week_start,
-                       interval '1 week'
-                   )::date as week_start
-            from bounds
-        ), orders as (
-            select update_time, yuanbao_amount
-            from t_payment_orders
-            where status = 'COMPLETED'
-            union all
-            select update_time, yuanbao_amount
-            from t_paddle_payment_orders
-            where status = 'COMPLETED'
-            union all
-            select update_time, yuanbao_amount
-            from t_steam_payment_orders
-            where status = 'COMPLETED' and delivered is true
-        ), purchases as (
-            select date_trunc('week', update_time at time zone 'UTC' at time zone %s)::date as week_start,
-                   count(*) as order_count,
-                   coalesce(sum(coalesce(yuanbao_amount, 0)), 0) as yuanbao_purchased
-            from orders, bounds
-            where (update_time at time zone 'UTC' at time zone %s)::date >= current_week_start - interval '9 weeks'
-            group by week_start
+        monthly_reason_rows = query_list(
+            conn,
+            f"""
+            select to_char(date_trunc('month', create_time at time zone 'UTC' at time zone %s), 'YYYY-MM') as month,
+                   {normalized_reason} as reason,
+                   coalesce(sum(greatest(new_value - old_value, 0)), 0) as gained,
+                   coalesce(sum(greatest(old_value - new_value, 0)), 0) as spent
+            from t_log_yuanbao
+            where old_value is not null and new_value is not null and old_value <> new_value
+            group by 1, 2
+            order by 1, spent desc, gained desc
+            """,
+            (ZONE_ID,),
         )
-        select weeks.week_start::text as week_start,
-               (weeks.week_start + 6)::text as week_end,
-               to_char(weeks.week_start, 'MM-DD') || ' 至 ' || to_char(weeks.week_start + 6, 'MM-DD') as label,
-               coalesce(purchases.order_count, 0) as order_count,
-               coalesce(purchases.yuanbao_purchased, 0) as yuanbao_purchased
-        from weeks
-        left join purchases on purchases.week_start = weeks.week_start
-        order by weeks.week_start
-        """,
-        (ZONE_ID, ZONE_ID, ZONE_ID),
-    )
+    return build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows)
 
 
 def purchase_category_case() -> str:
@@ -2297,10 +2374,6 @@ def load_unavailable_stats(error: Exception):
         },
         "dailyActive": [],
         "dailyRegistrations": [],
-        "hourlyYuanbaoSpending": [],
-        "weeklyYuanbaoSpending": [],
-        "weeklyYuanbaoPurchases": [],
-        "itemPurchases": [],
         "itemUsages": [],
     }
 
@@ -3024,6 +3097,19 @@ def load_unavailable_broker_stats(error: Exception):
     }
 
 
+def load_unavailable_yuanbao_stats(error: Exception):
+    return {
+        "generatedAt": now_in_zone().isoformat(),
+        "zoneId": ZONE_ID,
+        "sourceError": str(error),
+        "note": f"元宝统计数据源暂不可用：{error}",
+        "summary": {},
+        "monthly": [],
+        "consumptionPoints": [],
+        "gainSources": [],
+    }
+
+
 def load_unavailable_special_clinic_stats(error: Exception):
     return {
         "generatedAt": datetime.now(ZoneInfo(SPECIAL_CLINIC_ZONE_ID)).isoformat(),
@@ -3164,6 +3250,17 @@ def special_clinic_stats_api():
     except Exception as exc:
         app.logger.warning("special clinic stats unavailable: %s", exc)
         return jsonify(load_unavailable_special_clinic_stats(exc))
+
+
+@app.get("/api/yuanbao-stats")
+def yuanbao_stats_api():
+    try:
+        if use_stats_api():
+            return jsonify(fetch_stats_api("/api/yuanbao-stats"))
+        return jsonify(load_yuanbao_stats_from_prod())
+    except Exception as exc:
+        app.logger.warning("yuanbao stats unavailable: %s", exc)
+        return jsonify(load_unavailable_yuanbao_stats(exc))
 
 
 @app.get("/api/broker-stats")

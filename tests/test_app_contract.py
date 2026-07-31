@@ -37,6 +37,7 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("/auth/firebase-login", rules)
         self.assertIn("/auth/logout", rules)
         self.assertIn("/api/stats", rules)
+        self.assertIn("/api/yuanbao-stats", rules)
         self.assertIn("/api/source-health", rules)
         self.assertIn("/api/special-clinic-stats", rules)
         self.assertIn("/api/broker-stats", rules)
@@ -50,10 +51,12 @@ class AppContractTest(unittest.TestCase):
         html = response.get_data(as_text=True)
 
         self.assertIn('data-page-tab="overall"', html)
+        self.assertIn('data-page-tab="yuanbao"', html)
         self.assertIn('data-page-tab="specialClinic"', html)
         self.assertIn('data-page-tab="broker"', html)
         self.assertIn('data-page-tab="toiletMarket"', html)
         self.assertIn('id="specialClinicPage"', html)
+        self.assertIn('id="yuanbaoPage"', html)
         self.assertIn('id="brokerPage"', html)
         self.assertIn('id="toiletMarketPage"', html)
         self.assertIn('id="clinicWeekTabs"', html)
@@ -65,12 +68,18 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("付费确诊使用右轴", html)
         self.assertIn("yAxisID: 'paid'", html)
         self.assertIn("累计确诊", html)
-        self.assertIn("最近10周元宝消耗总量", html)
-        self.assertIn('id="weeklyYuanbaoSpendChart"', html)
-        self.assertIn("renderWeeklyYuanbaoSpendChart", html)
-        self.assertIn("最近10周元宝购入量", html)
-        self.assertIn('id="weeklyYuanbaoPurchaseChart"', html)
-        self.assertIn("renderWeeklyYuanbaoPurchaseChart", html)
+        self.assertIn("月度元宝增加与消耗", html)
+        self.assertIn('id="yuanbaoMonthlyChart"', html)
+        self.assertIn("全部直接与间接消费点", html)
+        self.assertIn('id="yuanbaoConsumptionRows"', html)
+        self.assertLess(html.index('data-page-tab="yuanbao"'), html.index('data-page-tab="specialClinic"'))
+        self.assertNotIn('id="weeklyYuanbaoSpendChart"', html)
+        self.assertNotIn('id="weeklyYuanbaoPurchaseChart"', html)
+        self.assertNotIn('id="yuanbaoSpendChart"', html)
+        self.assertNotIn('id="itemPurchaseChart"', html)
+        self.assertNotIn('data-stat-tab="yuanbao"', html)
+        self.assertNotIn("renderItemPurchaseChart", html)
+        self.assertIn('<div class="panel wide"><h2>日活与注册</h2>', html)
         self.assertIn("const pageLoadState", html)
         self.assertIn("PAGE_KEYS.forEach(page => refreshPage(page))", html)
         self.assertIn("setPageLoading", html)
@@ -101,7 +110,7 @@ class AppContractTest(unittest.TestCase):
         response = client.get("/")
         html = response.get_data(as_text=True)
 
-        self.assertEqual(html.count('class="chart-plot-title"'), 2)
+        self.assertEqual(html.count('class="chart-plot-title"'), 1)
         self.assertIn("id: 'plotTitleAlignment'", html)
         self.assertIn("chart.chartArea.left", html)
         self.assertIn("plotTitleAlignment: {enabled: true}", html)
@@ -252,30 +261,104 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(payload["streetThrownItems"], [])
         self.assertEqual(payload["beggarPickedItems"], [])
 
-    def test_overall_stats_include_weekly_yuanbao_spending(self):
+    def test_yuanbao_stats_use_full_ledger_and_completed_orders(self):
         source = Path("app/app.py").read_text(encoding="utf-8")
 
-        self.assertIn("weeklyYuanbaoSpending", source)
-        self.assertIn("load_weekly_yuanbao_spending", source)
-        self.assertIn("weeklyYuanbaoPurchases", source)
-        self.assertIn("load_weekly_yuanbao_purchases", source)
+        self.assertIn("load_yuanbao_stats_from_prod", source)
         self.assertIn("generate_series", source)
-        self.assertIn("current_week_start - interval '9 weeks'", source)
-        self.assertIn("old_value > new_value", source)
+        self.assertIn("greatest(old_value - new_value, 0)", source)
+        self.assertIn("greatest(new_value - old_value, 0)", source)
+        self.assertIn("from t_payment_orders where status = 'COMPLETED'", source)
+        self.assertIn("from t_steam_payment_orders where status = 'COMPLETED' and delivered is true", source)
+        self.assertNotIn("t_paddle_payment_orders", source)
         self.assertIn("coalesce(sum(coalesce(yuanbao_amount, 0)), 0) as yuanbao_purchased", source)
+        self.assertIn("regexp_replace(btrim(reason)", source)
+
+    def test_yuanbao_reason_classifies_shop_as_indirect_consumption(self):
+        shop = app_module.describe_yuanbao_reason("商店购买: 可爱胶囊")
+        direct = app_module.describe_yuanbao_reason("公会捐献")
+
+        self.assertEqual(shop, {
+            "point": "商店购买：可爱胶囊",
+            "category": "商店购买",
+            "consumption_type": "间接消耗",
+        })
+        self.assertEqual(direct["category"], "公会")
+        self.assertEqual(direct["consumption_type"], "直接消耗")
+
+    def test_yuanbao_stats_build_monthly_events_and_complete_points(self):
+        payload = app_module.build_yuanbao_stats(
+            [
+                {"month": "2026-01", "label": "2026年01月", "gained": 100, "spent": 40, "yuanbao_purchased": 60, "order_count": 2, "event_count": 5, "hospital_count": 3},
+                {"month": "2026-02", "label": "2026年02月", "gained": 30, "spent": 70, "yuanbao_purchased": 0, "order_count": 0, "event_count": 4, "hospital_count": 2},
+            ],
+            [
+                {"reason": "商店购买: 可爱胶囊", "gained": 0, "spent": 80, "event_count": 4, "hospital_count": 2, "first_month": "2026-01", "last_month": "2026-02"},
+                {"reason": "公会捐献", "gained": 0, "spent": 30, "event_count": 2, "hospital_count": 2, "first_month": "2026-02", "last_month": "2026-02"},
+                {"reason": "充值", "gained": 130, "spent": 0, "event_count": 3, "hospital_count": 2, "first_month": "2026-01", "last_month": "2026-02"},
+            ],
+            [
+                {"month": "2026-01", "reason": "商店购买: 可爱胶囊", "gained": 0, "spent": 40},
+                {"month": "2026-01", "reason": "充值", "gained": 100, "spent": 0},
+                {"month": "2026-02", "reason": "商店购买: 可爱胶囊", "gained": 0, "spent": 40},
+                {"month": "2026-02", "reason": "公会捐献", "gained": 0, "spent": 30},
+                {"month": "2026-02", "reason": "充值", "gained": 30, "spent": 0},
+            ],
+        )
+
+        self.assertEqual(payload["summary"], {
+            "firstMonth": "2026-01",
+            "lastMonth": "2026-02",
+            "monthCount": 2,
+            "totalGained": 130,
+            "totalPurchased": 60,
+            "totalSpent": 110,
+            "netChange": 20,
+            "consumptionPointCount": 2,
+        })
+        self.assertEqual([row["consumption_type"] for row in payload["consumptionPoints"]], ["间接消耗", "直接消耗"])
+        self.assertEqual(payload["monthly"][0]["net_change"], 60)
+        self.assertEqual(payload["monthly"][1]["net_change"], -40)
+        self.assertEqual(payload["monthly"][1]["events"][0]["points"], ["公会捐献"])
+
+    def test_unavailable_yuanbao_stats_keep_all_collections(self):
+        payload = app_module.load_unavailable_yuanbao_stats(RuntimeError("offline"))
+
+        self.assertEqual(payload["monthly"], [])
+        self.assertEqual(payload["consumptionPoints"], [])
+        self.assertEqual(payload["gainSources"], [])
 
     def test_daily_paying_hospitals_are_grouped_for_latest_seven_days(self):
         source = Path("app/app.py").read_text(encoding="utf-8")
 
         self.assertIn("load_daily_paying_hospitals", source)
         self.assertIn('select \'Stripe\' as channel, hospital_id', source)
-        self.assertIn('select \'Paddle\' as channel, hospital_id', source)
         self.assertIn('select \'Steam\' as channel, hospital_id', source)
+        self.assertNotIn("t_paddle_payment_orders", source)
         self.assertIn("where status = 'COMPLETED' and delivered is true", source)
         self.assertIn("PAYING_HOSPITAL_WINDOW_DAYS - 1", source)
         self.assertIn("left join t_hospitals h on h.id = o.hospital_id", source)
         self.assertIn("to_char(max(o.update_time)", source)
         self.assertIn("order by max(o.update_time) desc", source)
+
+    def test_revenue_queries_keep_placeholder_counts_after_excluding_paddle(self):
+        def query_one(conn, query, params=None):
+            self.assertEqual(query.count("%s"), len(params or ()))
+            return {
+                "recharge_cny_minor_today": 0,
+                "stripe_recharge_cny_minor_today": 0,
+                "steam_recharge_cny_minor_today": 0,
+            }
+
+        def query_list(conn, query, params=None):
+            self.assertEqual(query.count("%s"), len(params or ()))
+            return []
+
+        with patch.object(app_module, "query_one", side_effect=query_one):
+            app_module.load_summary(object())
+        with patch.object(app_module, "query_list", side_effect=query_list):
+            app_module.load_daily_recharge(object())
+            app_module.load_daily_paying_hospitals(object())
 
     def test_daily_paying_hospital_summary_keeps_currencies_separate(self):
         result = app_module.summarize_daily_paying_hospitals([
