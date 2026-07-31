@@ -265,6 +265,8 @@
         .yuanbao-events { display: grid; gap: 5px; min-width: 320px; }
         .yuanbao-event { color: var(--muted); font-size: 12px; line-height: 1.45; }
         .yuanbao-event strong { color: var(--text); }
+        .yuanbao-release-summary { color: var(--text); cursor: pointer; font-weight: 700; }
+        .yuanbao-release-list { display: grid; gap: 5px; margin: 7px 0 2px; padding-left: 20px; }
         .value-positive { color: var(--green); font-weight: 730; }
         .value-negative { color: var(--red); font-weight: 730; }
         table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
@@ -1044,6 +1046,15 @@
             const tr = document.createElement('tr');
             const netClass = Number(row.display_net_change || 0) >= 0 ? 'value-positive' : 'value-negative';
             const events = (row.display_events || []).map(event => {
+                if (event.kind === 'release') {
+                    const points = event.points || [];
+                    const preview = points.slice(0, 2).map(point => escapeHtml(point)).join('、');
+                    const remaining = points.slice(2);
+                    const more = remaining.length
+                        ? `<details><summary class="yuanbao-release-summary">查看其余 ${formatNumber(remaining.length)} 项</summary><ul class="yuanbao-release-list">${remaining.map(point => `<li>${escapeHtml(point)}</li>`).join('')}</ul></details>`
+                        : '';
+                    return `<div class="yuanbao-event"><strong>${escapeHtml(event.label)}</strong>（${formatNumber(event.count || points.length)} 项）：${preview}${more}</div>`;
+                }
                 const amount = event.amount ? `，${formatNumber(event.amount)} 元宝` : '';
                 return `<div class="yuanbao-event"><strong>${escapeHtml(event.label)}</strong>：${escapeHtml((event.points || []).join('、'))}${amount}</div>`;
             }).join('') || '<div class="yuanbao-event">无明显事件</div>';

@@ -20,8 +20,11 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from app.changelog_events import load_release_event_snapshot
+
 
 APP_DIR = Path(__file__).resolve().parent
+GAMEPLAY_RELEASE_EVENTS_PATH = APP_DIR / "data" / "gameplay_release_events.json"
 DATA_DIR = Path(os.getenv("OPS_DASHBOARD_DATA_DIR", "/data"))
 SQLITE_PATH = DATA_DIR / "ops_dashboard.sqlite3"
 ZONE_ID = os.getenv("OPS_DASHBOARD_TIME_ZONE", "Asia/Tokyo")
@@ -896,7 +899,7 @@ def describe_yuanbao_reason(reason):
     return {"point": text, "category": "其他", "consumption_type": "直接消耗"}
 
 
-def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
+def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows, release_events=None):
     consumption_points = []
     gain_sources = []
     transfer_sources = []
@@ -962,6 +965,15 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
             "is_platform_grant": is_platform_yuanbao_grant(reason),
             "transfer": transfer,
         })
+    release_events_by_month = {}
+    for release_event in release_events or []:
+        month = str(release_event.get("month") or str(release_event.get("date") or "")[:7])
+        title = str(release_event.get("title") or "").strip()
+        date = str(release_event.get("date") or "").strip()
+        if month and title:
+            release_events_by_month.setdefault(month, []).append({"date": date, "title": title})
+    for month_events in release_events_by_month.values():
+        month_events.sort(key=lambda event: (event["date"], event["title"]), reverse=True)
 
     enriched_months = []
     for row in monthly_rows:
@@ -972,8 +984,16 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
         transfer_values = [value for value in reason_values if value["transfer"]]
         non_grant_gain_values = [value for value in gain_values if not value["is_platform_grant"]]
         new_points = [value for value in spend_values if first_spend_month.get(value["point"]) == month][:2]
+        month_release_events = release_events_by_month.get(month, [])
         def build_events(selected_gain_values):
             events = []
+            if month_release_events:
+                events.append({
+                    "kind": "release",
+                    "label": "新玩法与新功能上线",
+                    "points": [f'{event["date"][5:]} {event["title"]}' for event in month_release_events],
+                    "count": len(month_release_events),
+                })
             if new_points:
                 events.append({"kind": "new", "label": "新增消费点", "points": [value["point"] for value in new_points]})
             if spend_values:
@@ -1022,7 +1042,7 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
     return {
         "generatedAt": now_in_zone().isoformat(),
         "zoneId": ZONE_ID,
-        "note": "增加和消耗来自元宝余额总账；卫生间匿名交易和公会捐献属于元宝转移，不计入增加或消耗并单独列示。其中购入只统计 Stripe 已完成订单和 Steam 已完成且发货订单。平台主动赠送识别包含补偿、赠送或礼包的增加原因；任务奖励和充值不归入主动赠送。间接消耗指商店购买后再使用道具，其他明确扣减归为直接消耗。大事件由新增消费点、非消耗转移和当月主导增减来源生成。",
+        "note": "增加和消耗来自元宝余额总账；卫生间匿名交易和公会捐献属于元宝转移，不计入增加或消耗并单独列示。其中购入只统计 Stripe 已完成订单和 Steam 已完成且发货订单。平台主动赠送识别包含补偿、赠送或礼包的增加原因；任务奖励和充值不归入主动赠送。间接消耗指商店购买后再使用道具，其他明确扣减归为直接消耗。大事件同时包含 CHANGELOG.md 中的新玩法、新功能上线，以及新增消费点、非消耗转移和当月主导增减来源。",
         "summary": {
             "firstMonth": enriched_months[0]["month"] if enriched_months else "",
             "lastMonth": enriched_months[-1]["month"] if enriched_months else "",
@@ -1038,6 +1058,7 @@ def build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows):
             "netChange": total_gained - total_spent,
             "netChangeExcludingPlatformGrants": total_gained_excluding_platform_grants - total_spent,
             "consumptionPointCount": len(consumption_points),
+            "releaseEventCount": sum(len(release_events_by_month.get(row.get("month") or "", [])) for row in monthly_rows),
         },
         "monthly": enriched_months,
         "consumptionPoints": consumption_points,
@@ -1126,7 +1147,8 @@ def load_yuanbao_stats_from_prod():
             """,
             (ZONE_ID,),
         )
-    return build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows)
+    release_events = load_release_event_snapshot(GAMEPLAY_RELEASE_EVENTS_PATH)
+    return build_yuanbao_stats(monthly_rows, reason_rows, monthly_reason_rows, release_events)
 
 
 def purchase_category_case() -> str:

@@ -77,6 +77,9 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("包含平台主动赠送元宝", html)
         self.assertIn("ops-dashboard-yuanbao-include-platform-grants", html)
         self.assertIn("events_excluding_platform_grants", html)
+        self.assertIn("event.kind === 'release'", html)
+        self.assertIn("yuanbao-release-summary", html)
+        self.assertIn("查看其余", html)
         self.assertLess(html.index('data-page-tab="yuanbao"'), html.index('data-page-tab="specialClinic"'))
         self.assertNotIn('id="weeklyYuanbaoSpendChart"', html)
         self.assertNotIn('id="weeklyYuanbaoPurchaseChart"', html)
@@ -332,6 +335,11 @@ class AppContractTest(unittest.TestCase):
                 {"month": "2026-02", "reason": "公会捐献", "gained": 0, "spent": 20},
                 {"month": "2026-02", "reason": "充值", "gained": 30, "spent": 0},
             ],
+            [
+                {"date": "2026-01-16", "month": "2026-01", "title": "上线狼烟"},
+                {"date": "2026-01-12", "month": "2026-01", "title": "上线三类胶囊到商店"},
+                {"date": "2026-02-09", "month": "2026-02", "title": "转让会长功能"},
+            ],
         )
 
         self.assertEqual(payload["summary"], {
@@ -349,6 +357,7 @@ class AppContractTest(unittest.TestCase):
             "netChange": 20,
             "netChangeExcludingPlatformGrants": -60,
             "consumptionPointCount": 2,
+            "releaseEventCount": 3,
         })
         self.assertEqual([row["consumption_type"] for row in payload["consumptionPoints"]], ["间接消耗", "直接消耗"])
         self.assertEqual(payload["monthly"][0]["net_change"], 60)
@@ -359,10 +368,14 @@ class AppContractTest(unittest.TestCase):
         self.assertEqual(payload["monthly"][0]["platform_grants"], 80)
         self.assertEqual(payload["monthly"][0]["gained_excluding_platform_grants"], 20)
         self.assertEqual(payload["monthly"][0]["net_change_excluding_platform_grants"], -20)
+        self.assertEqual(payload["monthly"][0]["events"][0]["kind"], "release")
+        self.assertEqual(payload["monthly"][0]["events"][0]["points"], ["01-16 上线狼烟", "01-12 上线三类胶囊到商店"])
         self.assertEqual(payload["monthly"][0]["events"][-1]["points"], ["线路维护补偿：赠送80元宝"])
         self.assertEqual(payload["monthly"][0]["events_excluding_platform_grants"][-1]["points"], ["充值"])
         self.assertEqual(payload["monthly"][1]["net_change"], -40)
-        self.assertEqual(payload["monthly"][1]["events"][0]["points"], ["疫区Boss组队"])
+        february_new_event = next(event for event in payload["monthly"][1]["events"] if event["kind"] == "new")
+        self.assertEqual(february_new_event["points"], ["疫区Boss组队"])
+        self.assertEqual(payload["monthly"][1]["events"][0]["points"], ["02-09 转让会长功能"])
         self.assertEqual(payload["monthly"][1]["transferred_out"], 20)
         self.assertTrue(any(event["kind"] == "transfer" and event["points"] == ["公会捐献"] for event in payload["monthly"][1]["events"]))
         grant_source = next(row for row in payload["gainSources"] if row["is_platform_grant"])
@@ -373,6 +386,42 @@ class AppContractTest(unittest.TestCase):
         self.assertNotIn("厕所匿名交易购买", [row["point"] for row in payload["consumptionPoints"]])
         self.assertNotIn("公会捐献", [row["point"] for row in payload["consumptionPoints"]])
         self.assertNotIn("厕所匿名交易出售", [row["point"] for row in payload["gainSources"]])
+
+    def test_changelog_parser_keeps_player_launches_and_filters_engineering_entries(self):
+        from app.changelog_events import parse_gameplay_release_events
+
+        events = parse_gameplay_release_events("""
+2026-07-31 更新日志
+    1.修复登录按钮偶发失效的问题
+    2.新增服务器部署配置
+    3.垃圾改为每累计100名真实新增病人产生1包
+2026-07-29 更新日志
+    1.商城新增四种原版地板商品，购买后可装备
+2026-07-28 更新日志
+    1.诊断室新增「院长驾到」疑难病例玩法：玩家可在120秒内答题
+2026-07-16 更新日志
+    1.新增管理员礼包管理页面
+2026-01-16 更新日志
+    1.上线狼烟
+2026-01-05 更新日志
+    1.实现极光弹功能和相关动画
+2026-01-04 更新日志
+    1.实现极光弹功能和相关动画
+""")
+
+        self.assertEqual([(event["date"], event["title"]) for event in events], [
+            ("2026-07-29", "商城新增四种原版地板商品，购买后可装备"),
+            ("2026-07-28", "诊断室新增「院长驾到」疑难病例玩法：玩家可在120秒内答题"),
+            ("2026-01-16", "上线狼烟"),
+            ("2026-01-05", "实现极光弹功能和相关动画"),
+        ])
+
+    def test_packaged_changelog_snapshot_is_present_and_readable(self):
+        from app.changelog_events import load_release_event_snapshot
+
+        events = load_release_event_snapshot(Path("app/data/gameplay_release_events.json"))
+        self.assertGreater(len(events), 20)
+        self.assertTrue(any(event["title"].startswith("诊断室新增「院长驾到」") for event in events))
 
     def test_unavailable_yuanbao_stats_keep_all_collections(self):
         payload = app_module.load_unavailable_yuanbao_stats(RuntimeError("offline"))
