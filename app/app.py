@@ -64,6 +64,7 @@ AUTH_ALLOWED_EMAILS = {
 AUTH_PUBLIC_ENDPOINTS = {"healthz", "favicon", "login", "firebase_login"}
 TOILET_MARKET_STALE_HOURS = 48
 PAYING_HOSPITAL_WINDOW_DAYS = 7
+ACTIVITY_WINDOW_DAYS = 7
 FIREBASE_PROJECT_ID = os.getenv("OPS_DASHBOARD_FIREBASE_PROJECT_ID", "r-hospital-c8069").strip()
 FIREBASE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
 FIREBASE_WEB_CONFIG = {
@@ -408,6 +409,10 @@ def sqlite_connection():
     conn.row_factory = sqlite3.Row
     try:
         yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -658,7 +663,7 @@ def load_stats_from_prod():
         stats = {
             "generatedAt": now_in_zone().isoformat(),
             "zoneId": ZONE_ID,
-            "note": "在线历史来自医院最后心跳时间；最近14日日活来自进入游戏日志。",
+            "note": "在线历史来自医院最后心跳时间；最近7日日活来自进入游戏日志。",
             "summary": summary,
             "onlineBuckets": query_list(
                 conn,
@@ -682,7 +687,7 @@ def load_stats_from_prod():
                 select ((create_time at time zone 'UTC' at time zone %s)::date)::text as day,
                        count(*) as count
                 from t_directors
-                where (create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
+                where (create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 6
                 group by day
                 order by day
                 """,
@@ -696,7 +701,7 @@ def load_stats_from_prod():
                 from t_log_right_bottom r
                 join t_hospitals h on h.id = r.hospital_id
                 where r.content like '%%院长 驾到主持工作%%'
-                  and (r.create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
+                  and (r.create_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 6
                 group by day
                 order by day
                 """,
@@ -1579,6 +1584,7 @@ def record_snapshot(stats):
 def merge_snapshot_history(stats):
     ensure_snapshot_table()
     cutoff = (now_in_zone().date() - timedelta(days=13)).isoformat()
+    activity_cutoff = (now_in_zone().date() - timedelta(days=ACTIVITY_WINDOW_DAYS - 1)).isoformat()
     with sqlite_connection() as conn:
         rows = conn.execute("select * from daily_snapshot where day >= ? order by day", (cutoff,)).fetchall()
     if not rows:
@@ -1601,8 +1607,8 @@ def merge_snapshot_history(stats):
         registrations[row["day"]] = row["count"]
     for row in stats["dailyRecharge"]:
         recharge[(row["day"], row["currency"])] = row
-    stats["dailyActive"] = [{"day": day, "count": count} for day, count in sorted(active.items())]
-    stats["dailyRegistrations"] = [{"day": day, "count": count} for day, count in sorted(registrations.items())]
+    stats["dailyActive"] = [{"day": day, "count": count} for day, count in sorted(active.items()) if day >= activity_cutoff]
+    stats["dailyRegistrations"] = [{"day": day, "count": count} for day, count in sorted(registrations.items()) if day >= activity_cutoff]
     stats["dailyRecharge"] = [row for _, row in sorted(recharge.items())]
     return stats
 

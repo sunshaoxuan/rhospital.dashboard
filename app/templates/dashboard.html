@@ -419,7 +419,7 @@
         <section class="grid">
             <div class="panel"><h2>最近24小时最后活跃分布，10分钟桶</h2><div class="chart-box"><canvas id="onlineChart"></canvas></div><div class="note" id="onlineNote"></div></div>
             <div class="panel"><h2>每日充值金额</h2><div class="chart-box"><canvas id="rechargeChart"></canvas></div><div class="note">金额按支付表最小货币单位除以100展示，图中默认展示 CNY。</div></div>
-            <div class="panel wide"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近14日日活来自进入游戏日志，快照仅用于生产库暂不可用时的补充。</div></div>
+            <div class="panel wide"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近7日日活来自进入游戏日志，历史快照补充日志之外的日期；日活看左轴，注册看右轴。</div></div>
             <div class="panel wide paying-hospital-panel">
                 <h2>最近 7 日每日氪金医院</h2>
                 <div class="paying-hospital-metrics">
@@ -1339,8 +1339,14 @@
             labels,
             datasets: [
                 {label: '日活', data: valuesByLabel(labels, activeRows, 'count'), borderColor: '#ffd166', backgroundColor: 'rgba(255, 209, 102, 0.14)', tension: 0.35},
-                {label: '注册', data: valuesByLabel(labels, registrationRows, 'count'), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.14)', tension: 0.35}
+                {label: '注册', data: valuesByLabel(labels, registrationRows, 'count'), borderColor: '#b898ff', backgroundColor: 'rgba(184, 152, 255, 0.14)', tension: 0.35, yAxisID: 'registrations'}
             ]
+        }, {
+            scales: {
+                x: {ticks: {color: '#98aac3', maxRotation: 0, autoSkip: true}, grid: {color: 'rgba(151, 178, 214, 0.12)'}},
+                y: {position: 'left', ticks: {color: '#ffd166'}, grid: {color: 'rgba(151, 178, 214, 0.12)'}, beginAtZero: true},
+                registrations: {position: 'right', ticks: {color: '#b898ff'}, grid: {drawOnChartArea: false}, beginAtZero: true}
+            }
         });
     }
 

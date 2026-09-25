@@ -2,7 +2,7 @@ import os
 import re
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -88,6 +88,9 @@ class AppContractTest(unittest.TestCase):
         self.assertNotIn('data-stat-tab="yuanbao"', html)
         self.assertNotIn("renderItemPurchaseChart", html)
         self.assertIn('<div class="panel wide"><h2>日活与注册</h2>', html)
+        self.assertIn("最近7日日活来自进入游戏日志", html)
+        self.assertIn("日活看左轴，注册看右轴", html)
+        self.assertIn("yAxisID: 'registrations'", html)
         self.assertIn("const pageLoadState", html)
         self.assertIn("PAGE_KEYS.forEach(page => refreshPage(page))", html)
         self.assertIn("setPageLoading", html)
@@ -949,6 +952,9 @@ class AppContractTest(unittest.TestCase):
     def test_merge_snapshot_history_prefers_recent_prod_recharge(self):
         old_data_dir = app_module.DATA_DIR
         old_sqlite_path = app_module.SQLITE_PATH
+        recent_day = app_module.now_in_zone().date().isoformat()
+        oldest_activity_day = (app_module.now_in_zone().date() - timedelta(days=6)).isoformat()
+        expired_activity_day = (app_module.now_in_zone().date() - timedelta(days=7)).isoformat()
         with tempfile.TemporaryDirectory() as temp_dir:
             app_module.DATA_DIR = Path(temp_dir)
             app_module.SQLITE_PATH = Path(temp_dir) / "ops_dashboard.sqlite3"
@@ -965,24 +971,63 @@ class AppContractTest(unittest.TestCase):
                             skin_purchase_log_accounts, skin_paid_confirmed_accounts
                         ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        ("2026-06-22", "2026-06-22T00:00:00+09:00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                        (recent_day, f"{recent_day}T00:00:00+09:00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                    )
+                    conn.execute(
+                        """insert into daily_snapshot (
+                            day, generated_at, active_today_accounts, registrations_today
+                        ) values (?, ?, ?, ?)""",
+                        (oldest_activity_day, f"{oldest_activity_day}T00:00:00+09:00", 8, 2),
                     )
                 stats = {
-                    "dailyActive": [{"day": "2026-06-22", "count": 12}],
-                    "dailyRegistrations": [{"day": "2026-06-22", "count": 3}],
+                    "dailyActive": [{"day": expired_activity_day, "count": 99}, {"day": recent_day, "count": 12}],
+                    "dailyRegistrations": [{"day": expired_activity_day, "count": 99}, {"day": recent_day, "count": 3}],
                     "dailyRecharge": [
-                        {"day": "2026-06-22", "currency": "cny", "orders": 1, "amount": 120.0, "yuanbao": 750}
+                        {"day": expired_activity_day, "currency": "cny", "orders": 1, "amount": 10.0, "yuanbao": 60},
+                        {"day": recent_day, "currency": "cny", "orders": 1, "amount": 120.0, "yuanbao": 750},
                     ],
                 }
 
                 merged = app_module.merge_snapshot_history(stats)
 
-                self.assertEqual(merged["dailyActive"], [{"day": "2026-06-22", "count": 12}])
-                self.assertEqual(merged["dailyRegistrations"], [{"day": "2026-06-22", "count": 3}])
+                self.assertEqual(merged["dailyActive"], [
+                    {"day": oldest_activity_day, "count": 8}, {"day": recent_day, "count": 12},
+                ])
+                self.assertEqual(merged["dailyRegistrations"], [
+                    {"day": oldest_activity_day, "count": 2}, {"day": recent_day, "count": 3},
+                ])
                 self.assertEqual(
                     merged["dailyRecharge"],
-                    [{"day": "2026-06-22", "currency": "cny", "orders": 1, "amount": 120.0, "yuanbao": 750}],
+                    [
+                        {"day": expired_activity_day, "currency": "cny", "orders": 1, "amount": 10.0, "yuanbao": 60},
+                        {"day": oldest_activity_day, "currency": "cny", "orders": 0, "amount": 0.0, "yuanbao": 0},
+                        {"day": recent_day, "currency": "cny", "orders": 1, "amount": 120.0, "yuanbao": 750},
+                    ],
                 )
+            finally:
+                app_module.DATA_DIR = old_data_dir
+                app_module.SQLITE_PATH = old_sqlite_path
+
+    def test_record_snapshot_persists_after_connection_closes(self):
+        old_data_dir = app_module.DATA_DIR
+        old_sqlite_path = app_module.SQLITE_PATH
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_module.DATA_DIR = Path(temp_dir)
+            app_module.SQLITE_PATH = Path(temp_dir) / "ops_dashboard.sqlite3"
+            try:
+                summary = {
+                    key: 0 for key in (
+                        "online_now_accounts", "active_today_accounts", "registrations_today",
+                        "recharge_cny_today", "recharge_yuanbao_today", "recharge_orders_today",
+                        "skin_owner_accounts", "skin_equipped_accounts", "skin_free_accounts",
+                        "skin_purchase_log_accounts", "skin_paid_confirmed_accounts",
+                    )
+                }
+                summary["active_today_accounts"] = 42
+                app_module.record_snapshot({"generatedAt": app_module.now_in_zone().isoformat(), "summary": summary})
+                with app_module.sqlite_connection() as conn:
+                    row = conn.execute("select active_today_accounts from daily_snapshot").fetchone()
+                self.assertEqual(row["active_today_accounts"], 42)
             finally:
                 app_module.DATA_DIR = old_data_dir
                 app_module.SQLITE_PATH = old_sqlite_path
