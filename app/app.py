@@ -660,6 +660,7 @@ def load_summary(conn):
 def load_stats_from_prod():
     with prod_connection() as conn:
         summary = load_summary(conn)
+        daily_recharge, daily_recharge_average = load_daily_recharge(conn)
         stats = {
             "generatedAt": now_in_zone().isoformat(),
             "zoneId": ZONE_ID,
@@ -707,7 +708,8 @@ def load_stats_from_prod():
                 """,
                 (ZONE_ID, ZONE_ID, ZONE_ID),
             ),
-            "dailyRecharge": load_daily_recharge(conn),
+            "dailyRecharge": daily_recharge,
+            "dailyRechargeAverage": daily_recharge_average,
             "payingHospitals": load_daily_paying_hospitals(conn),
             "itemUsages": load_item_usages(conn),
         }
@@ -732,6 +734,15 @@ def fill_daily_recharge_zero_days(rows, window_days=14, end_day=None):
     return sorted(filled, key=lambda row: (row["day"], row["currency"]))
 
 
+def daily_recharge_moving_average(rows, end_day=None):
+    days = rolling_day_window(27, end_day)[::-1]
+    cny_amounts = {row["day"]: float(row["amount"]) for row in rows if row["currency"] == "cny"}
+    return [
+        {"day": days[index], "amount": round(sum(cny_amounts.get(day, 0) for day in days[index - 13:index + 1]) / 14, 2)}
+        for index in range(13, len(days))
+    ]
+
+
 def load_daily_recharge(conn):
     rows = query_list(
         conn,
@@ -747,7 +758,7 @@ def load_daily_recharge(conn):
                coalesce(sum(amount), 0) as amount_minor,
                coalesce(sum(yuanbao_amount), 0) as yuanbao
         from orders
-        where (update_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 13
+        where (update_time at time zone 'UTC' at time zone %s)::date >= (now() at time zone %s)::date - 26
         group by day, lower(coalesce(currency, 'unknown'))
         order by day, currency
         """,
@@ -755,7 +766,10 @@ def load_daily_recharge(conn):
     )
     for row in rows:
         row["amount"] = major_amount(row.pop("amount_minor", 0))
-    return fill_daily_recharge_zero_days(rows)
+    end_day = now_in_zone().date()
+    filled = fill_daily_recharge_zero_days(rows, window_days=27, end_day=end_day)
+    cutoff = rolling_day_window(14, end_day)[-1]
+    return [row for row in filled if row["day"] >= cutoff], daily_recharge_moving_average(filled, end_day)
 
 
 def summarize_daily_paying_hospitals(rows, end_day=None):
@@ -2485,6 +2499,7 @@ def load_unavailable_stats(error: Exception):
         "summary": summary,
         "onlineBuckets": [],
         "dailyRecharge": [],
+        "dailyRechargeAverage": [],
         "payingHospitals": {
             "windowDays": PAYING_HOSPITAL_WINDOW_DAYS,
             "hospitalCount": 0,

@@ -418,7 +418,7 @@
 
         <section class="grid">
             <div class="panel"><h2>最近24小时最后活跃分布，10分钟桶</h2><div class="chart-box"><canvas id="onlineChart"></canvas></div><div class="note" id="onlineNote"></div></div>
-            <div class="panel"><h2>每日充值金额</h2><div class="chart-box"><canvas id="rechargeChart"></canvas></div><div class="note">金额按支付表最小货币单位除以100展示，图中默认展示 CNY。</div></div>
+            <div class="panel"><h2>每日充值金额</h2><div class="chart-box"><canvas id="rechargeChart"></canvas></div><div class="note">CNY 金额按支付表最小货币单位除以100展示；均线为含当日的近14个自然日平均值。</div></div>
             <div class="panel wide"><h2>日活与注册</h2><div class="chart-box"><canvas id="activityChart"></canvas></div><div class="note">最近7日日活来自进入游戏日志，历史快照补充日志之外的日期；日活看左轴，注册看右轴。</div></div>
             <div class="panel wide paying-hospital-panel">
                 <h2>最近 7 日每日氪金医院</h2>
@@ -928,6 +928,7 @@
         const overallSignature = stableStringify({
             summary: data.summary || {}, note: data.note || '', zoneId: data.zoneId || '',
             onlineBuckets: data.onlineBuckets || [], dailyRecharge: data.dailyRecharge || [],
+            dailyRechargeAverage: data.dailyRechargeAverage || [],
             payingHospitals: data.payingHospitals || {},
             dailyActive: data.dailyActive || [], dailyRegistrations: data.dailyRegistrations || [],
             itemUsages: data.itemUsages || []
@@ -948,7 +949,7 @@
         renderPayingHospitals(data.payingHospitals || {});
 
         renderOnlineChart(data.onlineBuckets || []);
-        renderRechargeChart(data.dailyRecharge || []);
+        renderRechargeChart(data.dailyRecharge || [], data.dailyRechargeAverage || []);
         renderActivityChart(data.dailyActive || [], data.dailyRegistrations || []);
         renderItemUseChart(data.itemUsages || []);
         renderItemActivityRows('itemUseRows', data.itemUsages || [], false);
@@ -1325,11 +1326,15 @@
         });
     }
 
-    function renderRechargeChart(rows) {
+    function renderRechargeChart(rows, averageRows) {
         const cnyRows = rows.filter(row => row.currency === 'cny');
+        const averageByDay = new Map(averageRows.map(row => [row.day, Number(row.amount)]));
         upsertChart('rechargeChart', 'bar', 'rechargeChart', {
             labels: cnyRows.map(row => row.day),
-            datasets: [{label: 'CNY', data: cnyRows.map(row => Number(row.amount || 0)), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.58)'}]
+            datasets: [
+                {label: 'CNY', data: cnyRows.map(row => Number(row.amount || 0)), borderColor: '#48d597', backgroundColor: 'rgba(72, 213, 151, 0.58)'},
+                {label: '14日均线', type: 'line', data: cnyRows.map(row => averageByDay.get(row.day) ?? null), borderColor: '#ef6a32', backgroundColor: '#ef6a32', tension: 0.28, pointRadius: 2, spanGaps: false}
+            ]
         });
     }
 

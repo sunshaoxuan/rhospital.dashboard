@@ -2,7 +2,7 @@ import os
 import re
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -522,6 +522,41 @@ class AppContractTest(unittest.TestCase):
             {"day": "2026-07-22", "currency": "usd", "orders": 1, "amount": 5.0, "yuanbao": 300},
             {"day": "2026-07-23", "currency": "cny", "orders": 2, "amount": 18.0, "yuanbao": 1000},
         ])
+
+    def test_daily_recharge_moving_average_uses_full_fourteen_day_windows(self):
+        averages = app_module.daily_recharge_moving_average([
+            {"day": "2026-06-27", "currency": "cny", "amount": 140.0},
+            {"day": "2026-07-10", "currency": "cny", "amount": 14.0},
+            {"day": "2026-07-11", "currency": "usd", "amount": 1400.0},
+            {"day": "2026-07-23", "currency": "cny", "amount": 28.0},
+        ], end_day=date(2026, 7, 23))
+
+        self.assertEqual(len(averages), 14)
+        self.assertEqual(averages[0], {"day": "2026-07-10", "amount": 11.0})
+        self.assertEqual(averages[1], {"day": "2026-07-11", "amount": 1.0})
+        self.assertEqual(averages[-1], {"day": "2026-07-23", "amount": 3.0})
+
+    def test_daily_recharge_reads_history_but_returns_fourteen_display_days(self):
+        with patch.object(app_module, "now_in_zone", return_value=datetime(2026, 7, 23)):
+            with patch.object(app_module, "query_list", return_value=[
+                {"day": "2026-06-27", "currency": "cny", "orders": 1, "amount_minor": 14000, "yuanbao": 0},
+                {"day": "2026-07-10", "currency": "cny", "orders": 1, "amount_minor": 1400, "yuanbao": 0},
+            ]) as query:
+                daily, averages = app_module.load_daily_recharge(None)
+
+        self.assertIn("::date - 26", query.call_args.args[1])
+        self.assertEqual(len(daily), 14)
+        self.assertEqual(daily[0]["day"], "2026-07-10")
+        self.assertEqual(daily[-1]["day"], "2026-07-23")
+        self.assertEqual(averages[0], {"day": "2026-07-10", "amount": 11.0})
+        self.assertEqual(averages[-1], {"day": "2026-07-23", "amount": 1.0})
+
+    def test_dashboard_renders_recharge_moving_average(self):
+        html = app.test_client().get("/").get_data(as_text=True)
+
+        self.assertIn("均线为含当日的近14个自然日平均值", html)
+        self.assertIn("dailyRechargeAverage: data.dailyRechargeAverage || []", html)
+        self.assertIn("label: '14日均线', type: 'line'", html)
 
     def test_dashboard_renders_daily_paying_hospital_list_and_summary(self):
         html = app.test_client().get("/").get_data(as_text=True)
