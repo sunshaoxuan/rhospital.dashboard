@@ -242,6 +242,9 @@
         .paying-summary-row:focus-visible { outline: 3px solid rgba(7, 156, 156, 0.24); outline-offset: -3px; }
         .hospital-cell { display: grid; gap: 3px; min-width: 160px; }
         .hospital-cell small { color: var(--muted); font-size: 11px; }
+        .paying-detail-table { min-width: 760px; }
+        .director-cell { min-width: 190px; max-width: 220px; }
+        .director-cell small { overflow-wrap: anywhere; }
         .yuanbao-filter-bar {
             display: flex;
             align-items: center;
@@ -437,7 +440,7 @@
                     <div>
                         <h3 id="payingHospitalDetailTitle">医院明细</h3>
                         <div class="table-scroll paying-hospital-scroll">
-                            <table><thead><tr><th>最近支付时间</th><th>医院</th><th>渠道</th><th>金额</th></tr></thead><tbody id="payingHospitalRows"></tbody></table>
+                            <table class="paying-detail-table"><thead><tr><th>最近支付时间</th><th>医院</th><th>院长</th><th>渠道</th><th>金额</th></tr></thead><tbody id="payingHospitalRows"></tbody></table>
                         </div>
                     </div>
                 </div>
@@ -1406,8 +1409,9 @@
             .filter(row => row.day === day)
             .sort((left, right) => String(right.last_payment_time || '').localeCompare(String(left.last_payment_time || '')));
         setText('payingHospitalDetailTitle', day ? `医院明细 · ${day}` : '医院明细');
-        renderSimpleRows('payingHospitalRows', rows, ['last_payment_time', 'hospital_id', 'channel', 'amount'], {
+        renderSimpleRows('payingHospitalRows', rows, ['last_payment_time', 'hospital_id', 'director_name', 'channel', 'amount'], {
             hospital_id: (value, row) => `<div class="hospital-cell"><span>${escapeHtml(row.hospital_name || '未命名医院')}</span><small>ID ${escapeHtml(value ?? '-')}</small></div>`,
+            director_name: (value, row) => `<div class="hospital-cell director-cell"><span>${escapeHtml(value || '未命名院长')}</span><small>${escapeHtml(row.director_email || '-')}</small></div>`,
             channel: value => `<span class="pill">${escapeHtml(value || '-')}</span>`,
             amount: (value, row) => escapeHtml(formatCurrencyAmount(value, row.currency)),
         });

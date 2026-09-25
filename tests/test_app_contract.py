@@ -465,8 +465,36 @@ class AppContractTest(unittest.TestCase):
         self.assertIn("where status = 'COMPLETED' and delivered is true", source)
         self.assertIn("PAYING_HOSPITAL_WINDOW_DAYS - 1", source)
         self.assertIn("left join t_hospitals h on h.id = o.hospital_id", source)
+        self.assertIn("left join t_directors d on d.id = h.director_id", source)
+        self.assertIn("coalesce(h.director_name, '') as director_name", source)
+        self.assertIn("coalesce(d.email, '') as director_email", source)
         self.assertIn("to_char(max(o.update_time)", source)
         self.assertIn("order by max(o.update_time) desc", source)
+
+    def test_daily_paying_hospital_detail_retains_director_identity_and_totals(self):
+        source_row = {
+            "day": "2026-09-25", "last_payment_time": "2026-09-25 10:09:45",
+            "hospital_id": 2830, "hospital_name": "综合医院",
+            "director_name": "院长甲", "director_email": "director@example.com",
+            "channel": "Stripe", "currency": "cny", "orders": 2, "amount_minor": 12000,
+        }
+        with patch.object(app_module, "query_list", return_value=[source_row]) as query:
+            result = app_module.load_daily_paying_hospitals(object())
+
+        self.assertEqual(query.call_args.args[1].count("%s"), 5)
+        self.assertIn("group by 1, 3, 4, 5, 6, 7, 8", query.call_args.args[1])
+        self.assertEqual(result["rows"][0]["director_name"], "院长甲")
+        self.assertEqual(result["rows"][0]["director_email"], "director@example.com")
+        self.assertEqual(result["rows"][0]["amount"], 120.0)
+        self.assertEqual(result["orderCount"], 2)
+        self.assertEqual(result["hospitalCount"], 1)
+
+    def test_paying_hospital_detail_shows_director_name_and_escaped_email(self):
+        html = app.test_client().get("/").get_data(as_text=True)
+
+        self.assertIn('<th>医院</th><th>院长</th><th>渠道</th>', html)
+        self.assertIn("['last_payment_time', 'hospital_id', 'director_name', 'channel', 'amount']", html)
+        self.assertIn("escapeHtml(row.director_email || '-')", html)
 
     def test_revenue_queries_keep_placeholder_counts_after_excluding_paddle(self):
         def query_one(conn, query, params=None):

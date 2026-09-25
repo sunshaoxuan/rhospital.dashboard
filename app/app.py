@@ -864,15 +864,18 @@ def load_daily_paying_hospitals(conn):
                to_char(max(o.update_time) at time zone 'UTC' at time zone %s, 'YYYY-MM-DD HH24:MI:SS') as last_payment_time,
                o.hospital_id,
                coalesce(h.hospital_name, '') as hospital_name,
+               coalesce(h.director_name, '') as director_name,
+               coalesce(d.email, '') as director_email,
                o.channel,
                lower(coalesce(o.currency, 'unknown')) as currency,
                count(*) as orders,
                coalesce(sum(o.amount), 0) as amount_minor
         from orders o
         left join t_hospitals h on h.id = o.hospital_id
+        left join t_directors d on d.id = h.director_id
         where (o.update_time at time zone 'UTC' at time zone %s)::date
               >= (now() at time zone %s)::date - %s
-        group by 1, 3, 4, 5, 6
+        group by 1, 3, 4, 5, 6, 7, 8
         order by max(o.update_time) desc, o.hospital_id desc, o.channel
         """,
         (ZONE_ID, ZONE_ID, ZONE_ID, ZONE_ID, PAYING_HOSPITAL_WINDOW_DAYS - 1),
