@@ -352,6 +352,9 @@
             .yuanbao-filter-hint { text-align: left; }
             button { padding: 8px 10px; }
             .cards { grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
+            #bacteriaLabPage .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            #bacteriaLabPage .card .label { min-height: 30px; }
+            #bacteriaLabPage .card .value { overflow-wrap: anywhere; }
             .card { min-height: auto; padding: 12px; }
             .card .label { margin-bottom: 8px; font-size: 12px; }
             .card .value { font-size: 24px; }
@@ -406,6 +409,7 @@
         <button class="tab-btn" type="button" data-page-tab="specialClinic">特需门诊</button>
         <button class="tab-btn" type="button" data-page-tab="broker">医托拉人</button>
         <button class="tab-btn" type="button" data-page-tab="toiletMarket">跳蚤市场</button>
+        <button class="tab-btn" type="button" data-page-tab="bacteriaLab">菌落实验室</button>
     </div>
 
     <div id="error" class="error"></div>
@@ -665,6 +669,32 @@
             </div>
         </section>
     </section>
+    <section id="bacteriaLabPage" class="page-section" hidden>
+        <div class="note" id="bacteriaWindow">近7个自然日</div>
+        <div class="note" id="bacteriaSourceError" role="alert" hidden></div>
+        <section class="cards clinic-summary-grid">
+            <div class="card"><div class="label">活跃医院</div><div class="value" id="bacteriaActive">-</div><div class="hint" id="bacteriaActiveHint">有结算记录</div></div>
+            <div class="card"><div class="label">已记录结算</div><div class="value" id="bacteriaSettlements">-</div><div class="hint" id="bacteriaSettlementHint">成功与失败</div></div>
+            <div class="card"><div class="label">结算成功率</div><div class="value" id="bacteriaWinRate">-</div><div class="hint">包含已通关关卡重玩</div></div>
+            <div class="card"><div class="label">每活跃日结算</div><div class="value" id="bacteriaFrequency">-</div><div class="hint">总结算 / 医院活跃日数</div></div>
+            <div class="card"><div class="label">机会购买医院</div><div class="value" id="bacteriaBuyers">-</div><div class="hint" id="bacteriaBuyerHint">近7日实际扣款</div></div>
+            <div class="card"><div class="label">机会购买次数</div><div class="value" id="bacteriaPurchases">-</div><div class="hint" id="bacteriaPurchaseHint">补满服务</div></div>
+            <div class="card"><div class="label">机会耗尽请求</div><div class="value" id="bacteriaEmpty">-</div><div class="hint" id="bacteriaEmptyHint">服务端拒绝挑战</div></div>
+            <div class="card"><div class="label">通关前连续失败均值</div><div class="value" id="bacteriaRetries">-</div><div class="hint" id="bacteriaRetryHint">可观察样本</div></div>
+        </section>
+        <section class="grid">
+            <div class="panel"><h2>每日结算与购买</h2><div class="chart-box"><canvas id="bacteriaDailyChart"></canvas></div><div class="note">结算次数使用左轴，购买次数使用右轴。</div></div>
+            <div class="panel"><h2>小时结算分布</h2><div class="chart-box"><canvas id="bacteriaHourlyChart"></canvas></div></div>
+            <div class="panel"><h2>近7日活跃天数</h2><div class="chart-box"><canvas id="bacteriaFrequencyChart"></canvas></div></div>
+            <div class="panel"><h2>当前最高通关进度</h2><div class="chart-box"><canvas id="bacteriaProgressChart"></canvas></div></div>
+            <div class="panel wide"><h2>通关前连续失败分布</h2><div class="chart-box"><canvas id="bacteriaRetryChart"></canvas></div><div class="note">样本为同一医院两次已观察成功结算之间的失败次数，可能跨关卡，包含重玩。窗口内首次成功及尚未成功的尾段不纳入。</div></div>
+            <div class="panel wide"><h2>每日明细</h2><div class="table-scroll clinic-table"><table><thead><tr><th>日期</th><th>活跃医院</th><th>结算</th><th>成功</th><th>失败</th><th>购买医院</th><th>购买次数</th><th>元宝消耗</th><th>耗尽请求</th></tr></thead><tbody id="bacteriaDailyRows"></tbody></table></div></div>
+            <div class="panel wide"><h2>机会购买医院 Top 50</h2><div class="table-scroll clinic-table"><table><thead><tr><th>医院</th><th>院长</th><th>购买次数</th><th>元宝消耗</th><th>活跃天数</th><th>结算</th><th>失败</th><th>最高通关</th></tr></thead><tbody id="bacteriaBuyerRows"></tbody></table></div></div>
+            <div class="panel wide"><h2>医院使用排行 Top 50</h2><div class="table-scroll clinic-table wide-clinic-table bounded-table"><table><thead><tr><th>医院</th><th>院长</th><th>活跃天数</th><th>结算</th><th>成功</th><th>失败</th><th>成功率</th><th>每活跃日结算</th><th>连续失败均值</th><th>样本数</th><th>尾段失败</th><th>购买次数</th><th>元宝</th><th>最高通关</th><th>最近结算</th></tr></thead><tbody id="bacteriaHospitalRows"></tbody></table></div><div class="note" id="bacteriaHospitalNote"></div></div>
+            <div class="panel wide"><h2>关卡奖励记录</h2><div class="table-scroll clinic-table"><table><thead><tr><th>关卡</th><th>通关奖励次数</th><th>重玩奖励次数</th><th>成功医院</th><th>单关首次通关重试</th></tr></thead><tbody id="bacteriaLevelRows"></tbody></table></div><div class="note">按近7日系统奖励日志统计。失败记录没有关卡号，单关重试与单关成功率无法计算。</div></div>
+            <div class="panel wide"><h2>数据口径</h2><div class="note" id="bacteriaLimitations"></div></div>
+        </section>
+    </section>
 </main>
 
 <div class="modal-backdrop" id="itemModal" aria-hidden="true">
@@ -695,9 +725,9 @@
         }
     };
     Chart.register(plotTitleAlignmentPlugin);
-    const PAGE_KEYS = ['overall', 'yuanbao', 'specialClinic', 'broker', 'toiletMarket'];
-    const PAGE_LABELS = {overall: '运营总览', yuanbao: '元宝统计', specialClinic: '特需门诊', broker: '医托拉人', toiletMarket: '跳蚤市场'};
-    const pageData = {overall: null, yuanbao: null, broker: null, toiletMarket: null};
+    const PAGE_KEYS = ['overall', 'yuanbao', 'specialClinic', 'broker', 'toiletMarket', 'bacteriaLab'];
+    const PAGE_LABELS = {overall: '运营总览', yuanbao: '元宝统计', specialClinic: '特需门诊', broker: '医托拉人', toiletMarket: '跳蚤市场', bacteriaLab: '菌落实验室'};
+    const pageData = {overall: null, yuanbao: null, broker: null, toiletMarket: null, bacteriaLab: null};
     const pageLoadState = Object.fromEntries(PAGE_KEYS.map(page => [page, {promise: null, pending: false, loaded: false, error: ''}]));
     let currentPage = 'overall';
     let statTableRequestId = 0;
@@ -793,7 +823,7 @@
     }
 
     function switchPage(page) {
-        currentPage = ['yuanbao', 'specialClinic', 'broker', 'toiletMarket'].includes(page) ? page : 'overall';
+        currentPage = PAGE_KEYS.includes(page) ? page : 'overall';
         document.querySelectorAll('[data-page-tab]').forEach(button => {
             button.classList.toggle('active', button.dataset.pageTab === currentPage);
         });
@@ -802,6 +832,7 @@
         document.getElementById('specialClinicPage').hidden = currentPage !== 'specialClinic';
         document.getElementById('brokerPage').hidden = currentPage !== 'broker';
         document.getElementById('toiletMarketPage').hidden = currentPage !== 'toiletMarket';
+        document.getElementById('bacteriaLabPage').hidden = currentPage !== 'bacteriaLab';
         renderCachedPage(currentPage);
         showCurrentPageError();
         updateRefreshControl();
@@ -813,6 +844,7 @@
         if (page === 'specialClinic') return loadSpecialClinicStats(specialClinicState.selectedWeekKey);
         if (page === 'broker') return loadBrokerStats();
         if (page === 'toiletMarket') return loadToiletMarketStats();
+        if (page === 'bacteriaLab') return loadBacteriaLabStats();
         return loadStats();
     }
 
@@ -881,6 +913,7 @@
         if (page === 'specialClinic' && specialClinicState.data) renderSpecialClinic(specialClinicState.data);
         if (page === 'broker' && pageData.broker) renderBrokerStats(pageData.broker);
         if (page === 'toiletMarket' && pageData.toiletMarket) renderToiletMarketStats(pageData.toiletMarket);
+        if (page === 'bacteriaLab' && pageData.bacteriaLab) renderBacteriaLabStats(pageData.bacteriaLab);
     }
 
     async function fetchJson(url) {
@@ -925,6 +958,12 @@
         const data = await fetchJson('api/toilet-market-stats');
         pageData.toiletMarket = data;
         if (currentPage === 'toiletMarket') renderToiletMarketStats(data);
+    }
+
+    async function loadBacteriaLabStats() {
+        const data = await fetchJson('api/bacteria-lab-stats');
+        pageData.bacteriaLab = data;
+        if (currentPage === 'bacteriaLab') renderBacteriaLabStats(data);
     }
 
     function render(data) {
@@ -1148,6 +1187,73 @@
             relation_type: value => brokerRelationLabel(value),
             item_chance_percent: value => formatPercent(value),
         });
+    }
+
+    function renderBacteriaLabStats(data) {
+        setText('generatedAt', '更新时间 ' + (data.generatedAt ? formatDateTime(data.generatedAt) : '-') + '，菌落实验室时区 ' + (data.zoneId || '-'));
+        const signature = stableStringify(data);
+        if (renderState.bacteriaLabSignature === signature) return;
+        renderState.bacteriaLabSignature = signature;
+        const s = data.summary || {};
+        const available = !data.sourceError;
+        const metric = value => value == null || !available ? '-' : formatNumber(value);
+        const decimal = value => value == null || !available ? '-' : formatMoney(value);
+        const percentage = value => value == null || !available ? '-' : formatPercent(value);
+        setText('bacteriaWindow', (data.windowStart || '-') + ' 至 ' + (data.windowEnd || '-') + ' · ' + (data.zoneId || '-') + ' · 更新 ' + (data.generatedAt ? formatDateTime(data.generatedAt) : '-'));
+        const error = document.getElementById('bacteriaSourceError');
+        error.hidden = available;
+        error.textContent = available ? '' : '菌落实验室数据源暂不可用：' + data.sourceError;
+        setText('bacteriaActive', metric(s.active_hospitals));
+        setText('bacteriaActiveHint', '已开始过挑战 ' + metric(s.ever_played_hospitals) + ' / 状态建立 ' + metric(s.state_hospitals));
+        setText('bacteriaSettlements', metric(s.settlements));
+        setText('bacteriaSettlementHint', '成功 ' + metric(s.wins) + ' / 失败 ' + metric(s.losses));
+        setText('bacteriaWinRate', percentage(s.win_rate));
+        setText('bacteriaFrequency', decimal(s.per_active_day));
+        setText('bacteriaBuyers', metric(s.buyers));
+        setText('bacteriaBuyerHint', '活跃医院购买占比 ' + percentage(s.active_buyer_rate));
+        setText('bacteriaPurchases', metric(s.purchase_count));
+        setText('bacteriaPurchaseHint', '消耗 ' + metric(s.yuanbao) + ' 元宝 / 复购医院 ' + metric(s.repeat_buyers));
+        setText('bacteriaEmpty', metric(s.empty_requests));
+        setText('bacteriaEmptyHint', '涉及 ' + metric(s.empty_hospitals) + ' 家医院，重复请求分别计数');
+        setText('bacteriaRetries', decimal(s.avg_retry));
+        setText('bacteriaRetryHint', '样本 ' + metric(s.retry_samples) + ' / 最大连续失败 ' + metric(s.max_retry));
+        const rows = available ? data.dailyTrend || [] : [];
+        upsertChart('bacteriaDailyChart', 'bar', 'bacteriaDailyChart', {
+            labels: rows.map(r => r.day.slice(5)), datasets: [
+                {label: '成功结算', data: rows.map(r => r.wins), backgroundColor: '#279c83', stack: 'settlement'},
+                {label: '失败结算', data: rows.map(r => r.losses), backgroundColor: '#db7168', stack: 'settlement'},
+                {label: '购买次数', type: 'line', data: rows.map(r => r.purchase_count), borderColor: '#d69b26', yAxisID: 'purchases'}
+            ]
+        }, {scales: {y: {beginAtZero: true, stacked: true}, purchases: {position: 'right', beginAtZero: true, grid: {drawOnChartArea: false}, ticks: {precision: 0}}}});
+        const hours = available ? data.hourly || [] : [];
+        upsertChart('bacteriaHourlyChart', 'bar', 'bacteriaHourlyChart', {
+            labels: hours.map(r => String(r.hour).padStart(2, '0') + ':00'), datasets: [
+                {label: '成功', data: hours.map(r => r.wins), backgroundColor: '#279c83'},
+                {label: '失败', data: hours.map(r => r.losses), backgroundColor: '#db7168'}
+            ]
+        });
+        for (const [id, list, key, label, color] of [
+            ['bacteriaFrequencyChart', data.frequency, 'active_days', '医院', '#508ab8'],
+            ['bacteriaProgressChart', data.progress, 'band', '医院', '#279c83'],
+            ['bacteriaRetryChart', data.retryDistribution, 'band', '成功结算样本', '#db7168']
+        ]) {
+            const items = available ? list || [] : [];
+            upsertChart(id, 'bar', id, {labels: items.map(r => key === 'active_days' ? r[key] + '天' : r[key]),
+                datasets: [{label, data: items.map(r => r.hospitals ?? r.wins), backgroundColor: color}]});
+        }
+        renderSimpleRows('bacteriaDailyRows', rows, ['day', 'active_hospitals', 'settlements', 'wins', 'losses', 'buyers', 'purchase_count', 'yuanbao', 'empty_requests']);
+        const hospitalCell = row => '<td>' + escapeHtml(row.hospital_name || '医院') + '<div class="hint">ID ' + escapeHtml(row.hospital_id) + '</div></td>';
+        const people = available ? data.hospitals || [] : [];
+        document.getElementById('bacteriaHospitalRows').innerHTML = people.length ? people.map(r => '<tr>' + hospitalCell(r) +
+            '<td>' + escapeHtml(r.director_name || '-') + '</td>' +
+            [metric(r.active_days), metric(r.settlements), metric(r.wins), metric(r.losses), percentage(r.win_rate), decimal(r.per_active_day), decimal(r.avg_retry), metric(r.retry_samples), metric(r.trailing_losses), metric(r.purchase_count), metric(r.yuanbao), metric(r.highest_cleared_level), r.last_settled_at ? formatDateTime(r.last_settled_at) : '-'].map(v => '<td>' + escapeHtml(v) + '</td>').join('') + '</tr>').join('') : '<tr><td colspan="15">' + (available ? '暂无使用记录' : '数据源暂不可用') + '</td></tr>';
+        const buyers = available ? data.buyerHospitals || [] : [];
+        document.getElementById('bacteriaBuyerRows').innerHTML = buyers.length ? buyers.map(r => '<tr>' + hospitalCell(r) + '<td>' + escapeHtml(r.director_name || '-') + '</td>' +
+            ['purchase_count', 'yuanbao', 'active_days', 'settlements', 'losses', 'highest_cleared_level'].map(k => '<td>' + metric(r[k]) + '</td>').join('') + '</tr>').join('') : '<tr><td colspan="8">' + (available ? '近7日暂无实际购买记录' : '数据源暂不可用') + '</td></tr>';
+        const levels = available ? data.levels || [] : [];
+        document.getElementById('bacteriaLevelRows').innerHTML = levels.length ? levels.map(r => '<tr>' + ['level', 'first_clears', 'replay_clears', 'hospitals'].map(k => '<td>' + metric(r[k]) + '</td>').join('') + '<td>未记录失败关卡</td></tr>').join('') : '<tr><td colspan="5">' + (available ? '暂无关卡奖励记录' : '数据源暂不可用') + '</td></tr>';
+        setText('bacteriaHospitalNote', '共 ' + metric(data.hospitalCount) + ' 家医院，按结算次数排序。当前未结算尝试 ' + metric(s.active_attempts) + ' 次，保留中的尝试可能已离线。');
+        document.getElementById('bacteriaLimitations').innerHTML = (data.limitations || []).map(note => '<p>' + escapeHtml(note) + '</p>').join('');
     }
 
     function renderToiletMarketStats(data) {

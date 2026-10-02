@@ -21,6 +21,7 @@ from urllib3.util.retry import Retry
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.changelog_events import load_release_event_snapshot
+from app.bacteria_stats import load_bacteria_stats, unavailable_bacteria_stats
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -3423,6 +3424,18 @@ def toilet_market_stats_api():
     except Exception as exc:
         app.logger.warning("toilet market stats unavailable: %s", exc)
         return jsonify(load_unavailable_toilet_market_stats(exc))
+
+
+@app.get("/api/bacteria-lab-stats")
+def bacteria_lab_stats_api():
+    try:
+        if use_stats_api():
+            return jsonify(fetch_stats_api("/api/bacteria-lab-stats"))
+        with prod_connection() as conn:
+            return jsonify(load_bacteria_stats(conn, query_list, now_in_zone(), ZONE_ID))
+    except Exception as exc:
+        app.logger.warning("bacteria lab stats unavailable: %s", exc)
+        return jsonify(unavailable_bacteria_stats(exc, now_in_zone(), ZONE_ID))
 
 
 @app.get("/api/stat-table")
