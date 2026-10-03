@@ -924,6 +924,7 @@
 
     async function loadStats() {
         const data = await fetchJson('api/stats');
+        if (data.sourceError) throw new Error(data.sourceError);
         pageData.overall = data;
         if (currentPage === 'overall') render(data);
     }

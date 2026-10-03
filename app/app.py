@@ -388,6 +388,10 @@ def get_prod_connection():
 def prod_connection():
     conn = get_prod_connection()
     try:
+        if SERVICE_MODE == "statistics_api":
+            source = read_source_health(conn)
+            if source["status"] != "ok":
+                raise RuntimeError(source["error"])
         yield conn
     except Exception:
         try:
@@ -464,6 +468,40 @@ def query_one(conn, sql, params=()):
         if row is None:
             return {}
         return {column: decimal_to_float(value) for column, value in zip(columns, row)}
+
+
+def source_health_status(source):
+    source = dict(source)
+    error = None
+    if not source.get("in_recovery") or not source.get("transaction_read_only"):
+        error = "statistics source must be a read-only standby"
+    elif source.get("replay_paused"):
+        error = "statistics standby replay is paused"
+    elif source.get("receiver_status") != "streaming":
+        error = "statistics standby replication is disconnected"
+    elif source.get("receive_delay_seconds") is None or source["receive_delay_seconds"] > 120:
+        error = "statistics standby replication heartbeat is stale"
+    elif source.get("replay_delay_seconds") is None or source.get("wal_lag_bytes") is None:
+        error = "statistics standby replay progress is unavailable"
+    elif source["wal_lag_bytes"] > 0 and source["replay_delay_seconds"] > 120:
+        error = "statistics standby replay is more than 120 seconds behind"
+    source["status"] = "unavailable" if error else "ok"
+    if error:
+        source["error"] = error
+    return source
+
+
+def read_source_health(conn):
+    return source_health_status(query_one(conn, """
+        select pg_is_in_recovery() as in_recovery,
+               current_setting('transaction_read_only') = 'on' as transaction_read_only,
+               case when pg_is_in_recovery() then pg_is_wal_replay_paused() else false end as replay_paused,
+               round(extract(epoch from (now() - pg_last_xact_replay_timestamp()))::numeric, 3) as replay_delay_seconds,
+               (select status from pg_stat_wal_receiver limit 1) as receiver_status,
+               (select round(extract(epoch from (now() - last_msg_receipt_time))::numeric, 3)
+                from pg_stat_wal_receiver limit 1) as receive_delay_seconds,
+               pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()) as wal_lag_bytes
+        """))
 
 
 def query_list(conn, sql, params=()):
@@ -2500,6 +2538,7 @@ def load_unavailable_stats(error: Exception):
         "generatedAt": now_in_zone().isoformat(),
         "zoneId": ZONE_ID,
         "note": f"数据源暂不可用：{error}",
+        "sourceError": str(error),
         "summary": summary,
         "onlineBuckets": [],
         "dailyRecharge": [],
@@ -3359,18 +3398,12 @@ def source_health_api():
         except Exception as exc:
             return jsonify({"status": "unavailable", "error": str(exc)}), 503
     try:
-        with prod_connection() as conn:
-            source = query_one(
-                conn,
-                """
-                select pg_is_in_recovery() as in_recovery,
-                       case when pg_is_in_recovery()
-                            then round(extract(epoch from (now() - pg_last_xact_replay_timestamp()))::numeric, 3)
-                            else 0
-                       end as replay_delay_seconds
-                """,
-            )
-        return jsonify({"status": "ok", **source})
+        conn = get_prod_connection()
+        try:
+            source = read_source_health(conn)
+        finally:
+            conn.rollback()
+        return jsonify(source), 200 if source["status"] == "ok" else 503
     except Exception as exc:
         return jsonify({"status": "unavailable", "error": str(exc)}), 503
 

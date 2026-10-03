@@ -922,7 +922,7 @@ class AppContractTest(unittest.TestCase):
     def test_documented_stats_source_is_streaming_backup_api(self):
         readme = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("https://ccnode.briconbric.com/rhdashboard/", readme)
-        self.assertIn("PROD_DB_URL=postgresql://127.0.0.1:5432/hospital", readme)
+        self.assertIn("PROD_DB_URL=postgresql://127.0.0.1:5433/hospital", readme)
         self.assertIn("OPS_DASHBOARD_STATS_API_URL=http://statistics-tunnel:18092", readme)
         self.assertIn("OPS_DASHBOARD_ALLOWED_EMAILS=sunshaoxuan@gmail.com", readme)
         self.assertIn("OPS_DASHBOARD_FIREBASE_PROJECT_ID=r-hospital-c8069", readme)
