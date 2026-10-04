@@ -1,0 +1,84 @@
+{
+  "overall": "PASS",
+  "date": "2026-10-04",
+  "runtime": "local Flask application on 127.0.0.1:18095",
+  "dataScope": "Local source unavailable; empty-state API and wording verified. No production connection or deployment.",
+  "intent": [
+    {
+      "intent": "菌落实验室全页用直白游戏词汇",
+      "evidence": "template, API limitations, screenshots",
+      "result": "PASS"
+    },
+    {
+      "intent": "保持原统计计算与其他页签",
+      "evidence": "scoped template diff and 12 existing tests",
+      "result": "PASS"
+    },
+    {
+      "intent": "桌面及移动文案换行无溢出",
+      "evidence": [
+        {
+          "width": 1440,
+          "geometry": {
+            "overflow": false,
+            "cards": [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "errors": [],
+          "apiStatus": 200
+        },
+        {
+          "width": 390,
+          "geometry": {
+            "overflow": false,
+            "cards": [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "errors": [],
+          "apiStatus": 200
+        },
+        {
+          "width": 320,
+          "geometry": {
+            "overflow": false,
+            "cards": [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "errors": [],
+          "apiStatus": 200
+        }
+      ],
+      "result": "PASS"
+    }
+  ],
+  "files": {
+    "app/templates/dashboard.html": "3485a44d9f87b1e8ea7a1fe1210a86b4f27526414216cd67721bdbbf863322fc",
+    "app/bacteria_stats.py": "9b85f3b4b74c5c614d61caf3c4fc68d9fa5cbde095f79936130c4cb370d54ce0",
+    "docs/features/bacteria-lab-statistics.md": "83820d1bcd30f9a0c861b6d1c817a551f901a6167b2d229247aee1a392728189",
+    "CHANGELOG.md": "0558f5c0367ccefc4db8e46628e2fdd5c84bc2b6a81e677a0ee29c818a6bd51b"
+  }
+}
