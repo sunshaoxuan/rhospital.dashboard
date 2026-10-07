@@ -128,7 +128,6 @@ def build_bacteria_stats(events, purchases, players, levels, now, zone_id):
         "max_retry": max(retries) if retries else None,
         "active_attempts": sum(bool(p.get("active_attempt_id")) for p in players),
     }
-    frequency = [{"active_days": i, "hospitals": sum(p["active_days"] == i for p in active)} for i in range(1, 8)]
     progress_counts = Counter()
     for p in players:
         if not (p.get("last_settled_attempt_id") or p.get("active_attempt_id")):
@@ -148,7 +147,7 @@ def build_bacteria_stats(events, purchases, players, levels, now, zone_id):
         "windowStart": first_day.isoformat(), "windowEnd": now.date().isoformat(),
         "observedSettlementStart": observed_start.isoformat() if observed_start else None,
         "summary": summary, "dailyTrend": list(daily.values()), "hourly": hourly,
-        "frequency": frequency, "progress": progress, "retryDistribution": retry_distribution,
+        "progress": progress, "retryDistribution": retry_distribution,
         "levels": levels, "hospitals": public_people[:50], "hospitalCount": len(ranked),
         "buyerHospitals": sorted((p for p in public_people if p["purchase_count"]),
             key=lambda p: (-p["purchase_count"], -p["yuanbao"], p["hospital_id"]))[:50],

@@ -685,7 +685,7 @@
         <section class="grid">
             <div class="panel"><h2>每日挑战与购买</h2><div class="chart-box"><canvas id="bacteriaDailyChart"></canvas></div><div class="note">左轴为挑战次数，右轴为购买机会次数。</div></div>
             <div class="panel"><h2>各时段挑战次数</h2><div class="chart-box"><canvas id="bacteriaHourlyChart"></canvas></div></div>
-            <div class="panel"><h2>最近7天游玩天数</h2><div class="chart-box"><canvas id="bacteriaFrequencyChart"></canvas></div></div>
+            <div class="panel"><h2>最近7天每日活跃医院数</h2><div class="chart-box"><canvas id="bacteriaActiveDailyChart"></canvas></div></div>
             <div class="panel"><h2>最高已通关关卡</h2><div class="chart-box"><canvas id="bacteriaProgressChart"></canvas></div></div>
             <div class="panel wide"><h2>通关前连败次数分布</h2><div class="chart-box"><canvas id="bacteriaRetryChart"></canvas></div><div class="note">统计同一医院两次通关之间的失败次数，可能跨关卡，也包含重玩。最近7天内第一次通关前的失败，以及最后一次通关后的失败，不计入此项。</div></div>
             <div class="panel wide"><h2>每日明细</h2><div class="table-scroll clinic-table"><table><thead><tr><th>日期</th><th>活跃医院</th><th>挑战次数</th><th>通关</th><th>失败</th><th>购买医院</th><th>购买次数</th><th>元宝消耗</th><th>无机会进入</th></tr></thead><tbody id="bacteriaDailyRows"></tbody></table></div></div>
@@ -1219,6 +1219,10 @@
         setText('bacteriaRetries', decimal(s.avg_retry));
         setText('bacteriaRetryHint', '统计区间 ' + metric(s.retry_samples) + ' / 最多连败 ' + metric(s.max_retry));
         const rows = available ? data.dailyTrend || [] : [];
+        upsertChart('bacteriaActiveDailyChart', 'bar', 'bacteriaActiveDailyChart', {
+            labels: rows.map(r => r.day.slice(5)),
+            datasets: [{label: '活跃医院数', data: rows.map(r => r.active_hospitals), backgroundColor: '#508ab8'}]
+        }, {scales: {y: {beginAtZero: true, ticks: {precision: 0}}}});
         upsertChart('bacteriaDailyChart', 'bar', 'bacteriaDailyChart', {
             labels: rows.map(r => r.day.slice(5)), datasets: [
                 {label: '通关', data: rows.map(r => r.wins), backgroundColor: '#279c83', stack: 'settlement'},
@@ -1234,12 +1238,11 @@
             ]
         });
         for (const [id, list, key, label, color] of [
-            ['bacteriaFrequencyChart', data.frequency, 'active_days', '医院', '#508ab8'],
             ['bacteriaProgressChart', data.progress, 'band', '医院', '#279c83'],
             ['bacteriaRetryChart', data.retryDistribution, 'band', '通关区间数', '#db7168']
         ]) {
             const items = available ? list || [] : [];
-            upsertChart(id, 'bar', id, {labels: items.map(r => key === 'active_days' ? r[key] + '天' : r[key]),
+            upsertChart(id, 'bar', id, {labels: items.map(r => r[key]),
                 datasets: [{label, data: items.map(r => r.hospitals ?? r.wins), backgroundColor: color}]});
         }
         renderSimpleRows('bacteriaDailyRows', rows, ['day', 'active_hospitals', 'settlements', 'wins', 'losses', 'buyers', 'purchase_count', 'yuanbao', 'empty_requests']);

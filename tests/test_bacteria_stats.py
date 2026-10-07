@@ -42,6 +42,23 @@ class BacteriaStatsTest(unittest.TestCase):
         self.assertEqual(data["hospitals"][0]["trailing_losses"], 1)
         self.assertEqual(sum(r["wins"] for r in data["retryDistribution"]), 2)
 
+    def test_daily_active_hospitals_deduplicate_settlements_per_local_day(self):
+        data = self.build([
+            self.event(1, "WON", at="2026-10-01T14:59:59Z"),
+            self.event(2, "LOST", at="2026-10-01T14:59:59Z"),
+            self.event(3, "LOST", 2, at="2026-10-01T14:59:59Z"),
+            self.event(4, "EMPTY", 3, at="2026-10-01T14:59:59Z"),
+            self.event(5, "WON", at="2026-10-01T15:00:00Z"),
+            self.event(6, "LOST", at="2026-10-02T08:00:00Z"),
+        ], players=[{"hospital_id": 4, "active_attempt_id": "unsettled"}])
+        self.assertEqual([r["active_hospitals"] for r in data["dailyTrend"]],
+                         [0, 0, 0, 0, 0, 2, 1])
+        self.assertEqual([r["settlements"] for r in data["dailyTrend"]][-2:], [3, 2])
+        self.assertEqual(data["summary"]["active_hospitals"], 2)
+        self.assertEqual([r["day"] for r in data["dailyTrend"]][-2:],
+                         ["2026-10-01", "2026-10-02"])
+        self.assertNotIn("frequency", data)
+
     def test_hospital_sequences_are_independent_and_empty_is_not_settlement(self):
         data = self.build([self.event(1, "WON"), self.event(2, "LOST", 2),
             self.event(3, "EMPTY"), self.event(4, "WON"), self.event(5, "WON", 2)])
@@ -136,6 +153,11 @@ class BacteriaStatsTest(unittest.TestCase):
         self.assertIn('id="bacteriaLabPage"', html)
         self.assertIn("fetchJson('api/bacteria-lab-stats')", html)
         self.assertIn("value == null || !available ? '-'", html)
+        self.assertIn("最近7天每日活跃医院数", html)
+        self.assertIn('id="bacteriaActiveDailyChart"', html)
+        self.assertIn("data: rows.map(r => r.active_hospitals)", html)
+        self.assertNotIn("bacteriaFrequencyChart", html)
+        self.assertNotIn("data.frequency", html)
 
     def test_new_api_requires_dashboard_login_and_service_token(self):
         client = app_module.app.test_client()
